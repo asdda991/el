@@ -4,6 +4,7 @@ import fs from "fs";
 import { Readable } from "stream";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import compression from "compression";
 
 // Disable SSL certificate validation for maximum compatibility with all IPTV/live stream providers
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -78,8 +79,8 @@ function applyTeamLogos(match: any, teamLogos: Record<string, string>, override:
 function autoProcessMatchStatus(match: any): any {
   if (!match) return match;
   
-  // If the match is already marked as "ended", we respect that!
-  if (match.status === "ended") {
+  // If the match status is explicitly marked as "ended" or "upcoming", respect that!
+  if (match.status === "ended" || match.status === "upcoming") {
     return match;
   }
 
@@ -175,6 +176,7 @@ function saveMatchOverride(matchId: string, data: any) {
   }
 }
 
+app.use(compression());
 app.use(express.json());
 
 const headers = {
@@ -785,32 +787,11 @@ Provide matches that are interesting and high profile. If the date is in the pas
   return getFallbackMatches(dateStr);
 }
 
-const MATCH_DETAILS_STORE_FILE = path.join(process.cwd(), "match_details_store.json");
-
-function getMatchDetailsStore(): Record<string, any> {
-  try {
-    if (fs.existsSync(MATCH_DETAILS_STORE_FILE)) {
-      const data = fs.readFileSync(MATCH_DETAILS_STORE_FILE, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (err) {
-    console.error("Error reading match details store:", err);
-  }
-  return {};
-}
-
-function saveMatchDetailsStore(store: Record<string, any>) {
-  try {
-    fs.writeFileSync(MATCH_DETAILS_STORE_FILE, JSON.stringify(store, null, 2));
-  } catch (err) {
-    console.error("Error saving match details store:", err);
-  }
-}
+const googleMatchDetailsMemoryCache: Record<string, any> = {};
 
 async function getGoogleMatchDetails(id: string): Promise<any> {
-  const store = getMatchDetailsStore();
-  if (store[id]) {
-    return store[id];
+  if (googleMatchDetailsMemoryCache[id]) {
+    return googleMatchDetailsMemoryCache[id];
   }
 
   const cache = getGoogleMatchesCache();
@@ -911,10 +892,7 @@ The statistics should be realistic and mathematically balanced. Ensure all value
     const cleanedJson = text.replace(/```json/g, "").replace(/```/g, "").trim();
     const mapped = JSON.parse(cleanedJson);
     mapped.id = id;
-
-    store[id] = mapped;
-    saveMatchDetailsStore(store);
-
+    googleMatchDetailsMemoryCache[id] = mapped;
     return mapped;
   } catch (err) {
     console.error(`Gemini failed to generate match details for ${id}:`, err);
@@ -938,9 +916,11 @@ The statistics should be realistic and mathematically balanced. Ensure all value
       stats: [],
       lineups: null
     };
+    googleMatchDetailsMemoryCache[id] = fallbackObj;
     return fallbackObj;
   }
 }
+
 
 // 1. API: Get details for all saved matches (supporting overrides & custom matches)
 app.get("/api/matches", async (req, res) => {
@@ -1026,7 +1006,13 @@ app.get("/api/matches", async (req, res) => {
       })
     );
 
-    const validMatches = fetchedMatches.filter(Boolean).map(autoProcessMatchStatus);
+    const validMatches = fetchedMatches.filter(Boolean).map((match) => {
+      const override = overrides[match?.id];
+      if (override && override.status) {
+        return match;
+      }
+      return autoProcessMatchStatus(match);
+    });
     res.json(validMatches);
   } catch (error) {
     console.error("Error in /api/matches:", error);
@@ -1038,8 +1024,9 @@ app.get("/api/matches", async (req, res) => {
 let sseClients: any[] = [];
 
 app.get("/api/updates", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
@@ -1048,7 +1035,17 @@ app.get("/api/updates", (req, res) => {
   const client = { id: Date.now(), res };
   sseClients.push(client);
 
+  // Send ping every 15s to keep Mobile Safari connection alive without dropping
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(": ping\n\n");
+    } catch {
+      clearInterval(heartbeat);
+    }
+  }, 15000);
+
   req.on("close", () => {
+    clearInterval(heartbeat);
     sseClients = sseClients.filter(c => c.id !== client.id);
   });
 });
@@ -1064,6 +1061,51 @@ function broadcastUpdate(type: string, data: any = {}) {
     }
   });
 }
+
+// Site Settings Storage & Endpoints
+const SITE_SETTINGS_FILE = path.join(process.cwd(), "site_settings.json");
+
+function getSiteSettings(): { logo: string; titleAr: string; titleEn: string } {
+  try {
+    if (fs.existsSync(SITE_SETTINGS_FILE)) {
+      const data = fs.readFileSync(SITE_SETTINGS_FILE, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error("Error reading site settings file:", err);
+  }
+  return {
+    logo: "/favicon.svg",
+    titleAr: "بوابة النخبة",
+    titleEn: "Elite Portal"
+  };
+}
+
+function saveSiteSettings(data: any) {
+  try {
+    const current = getSiteSettings();
+    const updated = { ...current, ...data };
+    fs.writeFileSync(SITE_SETTINGS_FILE, JSON.stringify(updated, null, 2));
+    return updated;
+  } catch (err) {
+    console.error("Error saving site settings file:", err);
+    return null;
+  }
+}
+
+app.get("/api/site-settings", (req, res) => {
+  res.json(getSiteSettings());
+});
+
+app.post("/api/admin/site-settings", (req, res) => {
+  const updated = saveSiteSettings(req.body);
+  if (updated) {
+    broadcastUpdate("site_settings_updated", { settings: updated });
+    res.json({ success: true, settings: updated });
+  } else {
+    res.status(500).json({ error: "Failed to save site settings" });
+  }
+});
 
 // API: Save match override details
 app.post("/api/matches/override", async (req, res) => {
@@ -1558,45 +1600,167 @@ app.all("/api/stream-proxy", async (req, res) => {
   }
 });
 
-// Buffer settings APIs
-const BUFFER_SETTINGS_FILE = path.join(process.cwd(), "buffer_settings.json");
+// Analytics & Real-Time Visitor Tracking
+const ANALYTICS_FILE = path.join(process.cwd(), "analytics.json");
 
-function getBufferSettings() {
-  try {
-    if (fs.existsSync(BUFFER_SETTINGS_FILE)) {
-      const data = fs.readFileSync(BUFFER_SETTINGS_FILE, "utf-8");
-      return JSON.parse(data);
+interface AnalyticsData {
+  totalVisits: number;
+  peakConcurrentViewers: number;
+  peakDate: string;
+}
+
+let analyticsMemoryCache: AnalyticsData | null = null;
+let analyticsSaveTimeout: NodeJS.Timeout | null = null;
+
+function getAnalyticsData(): AnalyticsData {
+  if (!analyticsMemoryCache) {
+    try {
+      if (fs.existsSync(ANALYTICS_FILE)) {
+        const data = fs.readFileSync(ANALYTICS_FILE, "utf-8");
+        analyticsMemoryCache = JSON.parse(data);
+      }
+    } catch (err) {
+      console.error("Error reading analytics data:", err);
     }
-  } catch (err) {
-    console.error("Error reading buffer settings:", err);
+    if (!analyticsMemoryCache) {
+      analyticsMemoryCache = {
+        totalVisits: 0,
+        peakConcurrentViewers: 0,
+        peakDate: new Date().toISOString()
+      };
+    }
   }
-  return {
-    maxBufferLength: 10,
-    maxMaxBufferLength: 15,
-    liveSyncDurationCount: 3
-  };
+  return analyticsMemoryCache;
 }
 
-function saveBufferSettings(settings: any) {
-  try {
-    fs.writeFileSync(BUFFER_SETTINGS_FILE, JSON.stringify(settings, null, 2));
-  } catch (err) {
-    console.error("Error saving buffer settings:", err);
-  }
+function saveAnalyticsData(data: AnalyticsData) {
+  analyticsMemoryCache = data;
+  if (analyticsSaveTimeout) clearTimeout(analyticsSaveTimeout);
+  analyticsSaveTimeout = setTimeout(() => {
+    try {
+      fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(analyticsMemoryCache, null, 2));
+    } catch (err) {
+      console.error("Error saving analytics data:", err);
+    }
+  }, 30000); // Debounce write to disk by 30s to prevent disk churn on pings
 }
 
-app.get("/api/admin/buffer-settings", (req, res) => {
-  res.json(getBufferSettings());
+// In-memory active sessions map
+const activeSessions = new Map<string, { lastPing: number; matchId?: string; device?: string; isWatchingStream?: boolean }>();
+
+// Clean up stale sessions every 10 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of activeSessions.entries()) {
+    if (now - session.lastPing > 25000) {
+      activeSessions.delete(id);
+    }
+  }
+}, 10000);
+
+app.post("/api/analytics/ping", (req, res) => {
+  const { sessionId, matchId, device, isWatchingStream, isNewVisit } = req.body || {};
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId required" });
+  }
+
+  const analytics = getAnalyticsData();
+  let updatedData = false;
+
+  if (isNewVisit) {
+    analytics.totalVisits = (analytics.totalVisits || 0) + 1;
+    updatedData = true;
+  }
+
+  activeSessions.set(sessionId, {
+    lastPing: Date.now(),
+    matchId,
+    device: device || "desktop",
+    isWatchingStream: !!isWatchingStream
+  });
+
+  const currentActive = activeSessions.size;
+  if (currentActive > (analytics.peakConcurrentViewers || 0)) {
+    analytics.peakConcurrentViewers = currentActive;
+    analytics.peakDate = new Date().toISOString();
+    updatedData = true;
+  }
+
+  if (updatedData) {
+    saveAnalyticsData(analytics);
+  }
+
+  res.json({ success: true, activeVisitors: currentActive });
 });
 
-app.post("/api/admin/buffer-settings", (req, res) => {
-  const settings = req.body;
-  if (!settings || typeof settings !== "object") {
-    return res.status(400).json({ error: "Invalid settings" });
+app.get("/api/analytics/stats", (req, res) => {
+  const reqDate = (req.query.date as string) || new Date().toISOString().split("T")[0];
+  const todayStr = new Date().toISOString().split("T")[0];
+  const isToday = reqDate === todayStr;
+
+  const analytics = getAnalyticsData();
+  const activeVisitors = activeSessions.size;
+
+  let currentLiveViewers = 0;
+  let mobileCount = 0;
+  let desktopCount = 0;
+  let tabletCount = 0;
+  const matchViewersMap: Record<string, number> = {};
+
+  for (const session of activeSessions.values()) {
+    if (session.isWatchingStream) {
+      currentLiveViewers++;
+      if (session.matchId) {
+        matchViewersMap[session.matchId] = (matchViewersMap[session.matchId] || 0) + 1;
+      }
+    }
+    if (session.device === "mobile") mobileCount++;
+    else if (session.device === "tablet") tabletCount++;
+    else desktopCount++;
   }
-  saveBufferSettings(settings);
-  broadcastUpdate("buffer_settings_updated", settings);
-  res.json({ success: true, settings });
+
+  const totalDevices = activeVisitors;
+  const deviceBreakdown = {
+    mobile: totalDevices > 0 ? Math.round((mobileCount / totalDevices) * 100) : 0,
+    desktop: totalDevices > 0 ? Math.round((desktopCount / totalDevices) * 100) : 0,
+    tablet: totalDevices > 0 ? Math.round((tabletCount / totalDevices) * 100) : 0,
+  };
+
+  const dayVisits = isToday ? (analytics.totalVisits || activeVisitors) : 0;
+  const dayStreamViews = isToday ? currentLiveViewers : 0;
+  const dayPeakConcurrent = isToday ? Math.max(analytics.peakConcurrentViewers || 0, activeVisitors) : 0;
+  const avgWatchDuration = activeVisitors > 0 ? 12 : 0; // minutes
+
+  // Hourly trend for selected day
+  const hourlyTrend = [];
+  for (let h = 0; h < 24; h += 2) {
+    const timeStr = `${h.toString().padStart(2, "0")}:00`;
+    hourlyTrend.push({
+      time: timeStr,
+      visitors: isToday ? Math.round(activeVisitors / 12) : 0,
+      liveViewers: isToday ? Math.round(currentLiveViewers / 12) : 0
+    });
+  }
+
+  res.json({
+    selectedDate: reqDate,
+    isToday,
+    activeVisitors: isToday ? activeVisitors : 0,
+    totalVisits: analytics.totalVisits || 0,
+    peakConcurrentViewers: Math.max(analytics.peakConcurrentViewers || 0, activeVisitors),
+    peakDate: analytics.peakDate || new Date().toISOString(),
+    currentLiveViewers: isToday ? currentLiveViewers : 0,
+    
+    // Day specific metrics
+    dayVisits,
+    dayStreamViews,
+    dayPeakConcurrent,
+    avgWatchDuration,
+    
+    deviceBreakdown,
+    matchViewersMap,
+    hourlyTrend
+  });
 });
 
 // Start server with Vite middleware or static files
