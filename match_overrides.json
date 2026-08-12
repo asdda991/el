@@ -60,8 +60,8 @@
       }
     ]
   },
-  "custom_1786378703273": {
-    "id": "custom_1786378703273",
+  "custom_1786155323297": {
+    "id": "custom_1786155323297",
     "sport": "football",
     "teamA": {
       "ar": "ريال مدريد",
@@ -96,24 +96,22 @@
     },
     "stats": [],
     "lineups": null,
-    "logoA": "https://images.fotmob.com/image_resources/logo/teamlogo/8633.png",
-    "logoB": "https://images.fotmob.com/image_resources/logo/teamlogo/8634.png",
-    "streamUrl": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/1836268.m3u8",
+    "streamUrl": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/1294764.m3u8",
     "streamType": "iframe",
     "streams": [
       {
-        "name": "FHD",
-        "url": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/1836268.m3u8",
+        "name": "سيرفر 1",
+        "url": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/1294764.m3u8",
         "type": "iframe"
       },
       {
-        "name": "4K",
+        "name": "سيرفر 2",
         "url": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/2034167.m3u8",
         "type": "iframe"
       },
       {
-        "name": "HD",
-        "url": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/1660410.m3u8",
+        "name": "سيرفر 3",
+        "url": "",
         "type": "iframe"
       },
       {
@@ -121,6 +119,8 @@
         "url": "",
         "type": "iframe"
       }
-    ]
+    ],
+    "logoA": "https://images.fotmob.com/image_resources/logo/teamlogo/8633.png",
+    "logoB": "https://images.fotmob.com/image_resources/logo/teamlogo/8634.png"
   }
 }
