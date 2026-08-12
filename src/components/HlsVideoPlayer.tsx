@@ -5,13 +5,11 @@ import { Volume2, VolumeX, Play, Pause, Maximize, RotateCcw } from "lucide-react
 interface HlsVideoPlayerProps {
   src: string;
   className?: string;
-  lang?: "ar" | "en";
 }
 
-export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: HlsVideoPlayerProps) {
+export default function HlsVideoPlayer({ src, className = "" }: HlsVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const hlsRef = useRef<Hls | null>(null);
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -22,36 +20,28 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
   const [errorMessage, setErrorMessage] = useState("");
   const [retryKey, setRetryKey] = useState(0);
 
-  // Control icons visibility & 10 seconds auto-hide timer
-  const [showControls, setShowControls] = useState(true);
-  const controlsTimeoutRef = useRef<any>(null);
+  // Dynamic buffer settings loaded from server (set by admin)
+  const [bufferSettings, setBufferSettings] = useState({
+    maxBufferLength: 10,
+    maxMaxBufferLength: 15,
+    liveSyncDurationCount: 3
+  });
 
-  const resetControlsTimer = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
-    }
-    controlsTimeoutRef.current = setTimeout(() => {
-      setShowControls(false);
-    }, 10000); // 10 seconds auto-hide
-  };
-
+  // Fetch buffer settings on mount
   useEffect(() => {
-    resetControlsTimer();
-    return () => {
-      if (controlsTimeoutRef.current) {
-        clearTimeout(controlsTimeoutRef.current);
-      }
-    };
+    fetch("/api/admin/buffer-settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && typeof data === "object") {
+          setBufferSettings({
+            maxBufferLength: Number(data.maxBufferLength) || 10,
+            maxMaxBufferLength: Number(data.maxMaxBufferLength) || 15,
+            liveSyncDurationCount: Number(data.liveSyncDurationCount) || 3
+          });
+        }
+      })
+      .catch((err) => console.error("Error loading buffer settings for player:", err));
   }, []);
-
-  const handleContainerClick = () => {
-    resetControlsTimer();
-  };
-
-  const handlePlayerInteraction = () => {
-    resetControlsTimer();
-  };
 
   // Sync volume state to video element
   useEffect(() => {
@@ -72,7 +62,7 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     
-    // On iOS or Safari, always prefer direct HTTPS URL to avoid proxy range request decoding failures
+    // On iOS or Safari, always prefer direct HTTPS URL to avoid proxy range request decoding failures (black screen)
     if (isHttps && (isIOS || isSafari)) {
       return trimmed;
     }
@@ -120,7 +110,7 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
             })
             .catch((err) => {
               if (err.name === "AbortError") {
-                console.log("[HlsVideoPlayer] Play request interrupted.");
+                console.log("[HlsVideoPlayer] Play request was interrupted by another load request (benign).");
                 return;
               }
               console.warn("Autoplay blocked. Attempting muted play...", err);
@@ -135,8 +125,11 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
                     setShowUnmuteToast(true);
                   })
                   .catch((e) => {
-                    if (e.name === "AbortError") return;
-                    console.error("Muted autoplay failed:", e);
+                    if (e.name === "AbortError") {
+                      console.log("[HlsVideoPlayer] Muted play request was interrupted (benign).");
+                      return;
+                    }
+                    console.error("Muted autoplay failed as well:", e);
                     setIsPlaying(false);
                     setIsBuffering(false);
                   });
@@ -160,9 +153,10 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
     };
     const handlePause = () => setIsPlaying(false);
     const handleError = () => {
+      // Don't flag error immediately if HLS is still retrying
       if (!hls) {
         setHasError(true);
-        setErrorMessage(lang === "ar" ? "تعذر تحميل الفيديو أو انقطع الاتصال بالبث" : "Unable to load stream video.");
+        setErrorMessage("تعذر تحميل الفيديو أو انقطع الاتصال بالبث");
       }
     };
 
@@ -181,35 +175,28 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
                   lowerSrc.includes("hls") || 
                   lowerSrc.includes("stream") || 
                   (!lowerSrc.includes(".mp4") && !lowerSrc.includes(".webm") && !lowerSrc.includes(".mkv") && !lowerSrc.includes(".mp3"));
-
     if (isHls) {
       if (Hls.isSupported()) {
+        // Detect mobile/tablet to optimize buffer and memory footprint
+        const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        // Hls.js library (Chrome, Firefox, Edge, Android) - Prefer Hls.js for robust custom decoding
         hls = new Hls({
-          startFragPrefetch: true,
-          startLevel: -1,
-          liveSyncDurationCount: 5,
-          liveMaxLatencyDurationCount: 10,
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
-          maxBufferSize: 60 * 1024 * 1024,
-          progressive: true,
+          // Dynamic adaptive buffering suited for mobile networks and RAM constraints
+          maxBufferLength: isMobileDevice ? Math.min(6, bufferSettings.maxBufferLength) : bufferSettings.maxBufferLength,
+          maxMaxBufferLength: isMobileDevice ? Math.min(10, bufferSettings.maxMaxBufferLength) : bufferSettings.maxMaxBufferLength,
+          maxBufferSize: isMobileDevice ? 25 * 1024 * 1024 : 60 * 1024 * 1024, // 25MB max on mobile to prevent tab crashes
+          liveSyncDurationCount: bufferSettings.liveSyncDurationCount,
           enableWorker: true,
-          lowLatencyMode: false,
-          backBufferLength: 30,
-          manifestLoadingTimeOut: 10000,
-          manifestLoadingMaxRetryTimeout: 3000,
-          levelLoadingTimeOut: 10000,
-          levelLoadingMaxRetryTimeout: 3000,
-          fragLoadingTimeOut: 10000,
-          fragLoadingMaxRetryTimeout: 3000,
-          capLevelToPlayerSize: true,
+          lowLatencyMode: true,
+          backBufferLength: isMobileDevice ? 10 : 30, // Periodically ejects older segments from RAM
+          manifestLoadingMaxRetry: 6,
+          levelLoadingMaxRetry: 6,
+          // CRITICAL: Caps quality level based on physical player/screen dimensions to stop HD lags/crashes on mobile & tablets
+          capLevelToPlayerSize: true, 
           testBandwidth: true,
-          abrEwmaDefaultEstimate: 2000000,
-          abrBandWidthFactor: 0.85,
-          abrBandWidthUpFactor: 0.7
+          abrEwmaDefaultEstimate: 1500000 // 1.5 Mbps default estimate to avoid starting in oversized quality level
         });
-
-        hlsRef.current = hls;
 
         hls.loadSource(processedUrl);
         hls.attachMedia(video);
@@ -225,32 +212,34 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
               case Hls.ErrorTypes.NETWORK_ERROR:
                 if (hlsRetryCount < maxHlsRetries) {
                   hlsRetryCount++;
-                  console.warn(`[HlsVideoPlayer] Fatal network error. Retrying (${hlsRetryCount}/${maxHlsRetries})...`);
+                  console.warn(`[HlsVideoPlayer] Fatal network error in HLS playback. Retrying (${hlsRetryCount}/${maxHlsRetries}) in 2s...`);
                   setIsBuffering(true);
                   if (retryTimeoutId) clearTimeout(retryTimeoutId);
                   retryTimeoutId = setTimeout(() => {
                     hls?.startLoad();
-                  }, 1500);
+                  }, 2000);
                 } else {
+                  console.error("[HlsVideoPlayer] Max HLS network retries reached.");
                   setHasError(true);
-                  setErrorMessage(lang === "ar" ? "خطأ في الاتصال بالشبكة للبث المباشر. يرجى محاولة التحديث." : "Network connection error.");
+                  setErrorMessage("خطأ في الاتصال بالشبكة للبث المباشر. قد يكون السيرفر متوقف حالياً أو تم إيقاف الرابط.");
                   hls?.destroy();
                 }
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
-                console.warn("[HlsVideoPlayer] Media error encountered. Recovering...");
+                console.error("[HlsVideoPlayer] Fatal media error in HLS playback. Recovering...");
                 hls?.recoverMediaError();
                 break;
               default:
+                console.error("[HlsVideoPlayer] Unrecoverable HLS error:", data);
                 setHasError(true);
-                setErrorMessage(lang === "ar" ? "خطأ في تشغيل البث المباشر." : "Playback error.");
+                setErrorMessage("خطأ في تشغيل البث المباشر. قد يكون السيرفر متوقف حالياً.");
                 hls?.destroy();
                 break;
             }
           }
         });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        // Native HLS (Safari / iOS)
+        // Native HLS (Safari, iOS)
         video.src = processedUrl;
         video.load();
       } else {
@@ -258,12 +247,15 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
         video.load();
       }
     } else {
+      // Standard MP4 or direct video file
       video.src = processedUrl;
       video.load();
     }
 
     return () => {
-      if (retryTimeoutId) clearTimeout(retryTimeoutId);
+      if (retryTimeoutId) {
+        clearTimeout(retryTimeoutId);
+      }
       video.removeEventListener("loadstart", handleLoadStart);
       video.removeEventListener("canplay", handleCanPlay);
       video.removeEventListener("loadedmetadata", handleCanPlay);
@@ -275,7 +267,6 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
 
       if (hls) {
         hls.destroy();
-        hlsRef.current = null;
       }
     };
   }, [processedUrl, src, retryKey]);
@@ -334,9 +325,9 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
 
     const doc = document as any;
     const isFullscreen = doc.fullscreenElement || 
-                          doc.webkitFullscreenElement || 
-                          doc.mozFullScreenElement ||
-                          doc.msFullscreenElement;
+                         doc.webkitFullscreenElement || 
+                         doc.mozFullScreenElement ||
+                         doc.msFullscreenElement;
 
     if (isFullscreen) {
       if (document.exitFullscreen) {
@@ -349,16 +340,23 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
         doc.msExitFullscreen();
       }
     } else {
+      // Try modern fullscreen first
       if (container.requestFullscreen) {
         container.requestFullscreen().catch(err => {
+          console.warn("[HlsVideoPlayer] requestFullscreen failed, trying webkitEnterFullscreen:", err);
           fallbackNativeFullscreen(video);
         });
       } else if ((container as any).webkitRequestFullscreen) {
         try {
           (container as any).webkitRequestFullscreen();
         } catch (err) {
+          console.warn("[HlsVideoPlayer] webkitRequestFullscreen failed, trying webkitEnterFullscreen:", err);
           fallbackNativeFullscreen(video);
         }
+      } else if ((container as any).mozRequestFullScreen) {
+        (container as any).mozRequestFullScreen();
+      } else if ((container as any).msRequestFullscreen) {
+        (container as any).msRequestFullscreen();
       } else {
         fallbackNativeFullscreen(video);
       }
@@ -372,35 +370,25 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
   return (
     <div 
       ref={containerRef}
-      className={`relative overflow-hidden bg-black select-none group ${className}`}
-      onClick={handleContainerClick}
-      onMouseMove={handlePlayerInteraction}
-      onTouchStart={handlePlayerInteraction}
+      className={`overflow-hidden bg-black group ${className}`}
     >
-      {/* HTML5 Video Component with mobile video attributes */}
+      {/* HTML5 Video Component */}
       <video
         ref={videoRef}
         playsInline
         webkit-playsinline="true"
-        x5-playsinline="true"
-        x5-video-player-type="h5"
-        x5-video-player-fullscreen="true"
         autoPlay
         muted={isMuted}
         preload="auto"
-        style={{ transform: "translateZ(0)", willChange: "transform" }}
         className="w-full h-full object-contain absolute inset-0 bg-black cursor-pointer"
+        onClick={togglePlay}
       />
 
       {/* Loading & Buffering Overlay */}
       {isBuffering && !hasError && (
         <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-3 z-10 pointer-events-none">
           <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-          <div className="flex flex-col items-center gap-1">
-            <span className="text-xs font-semibold text-zinc-300">
-              {lang === "ar" ? "جاري فتح البث بأعلى سرعة..." : "Opening live stream..."}
-            </span>
-          </div>
+          <span className="text-xs font-semibold text-zinc-300">جاري تحميل البث المباشر...</span>
         </div>
       )}
 
@@ -411,75 +399,50 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
             <VolumeX className="w-8 h-8" />
           </div>
           <div className="space-y-1.5 max-w-sm">
-            <h4 className="text-sm font-bold text-zinc-200">
-              {lang === "ar" ? "فشل تحميل البث" : "Failed to load stream"}
-            </h4>
+            <h4 className="text-sm font-bold text-zinc-200">فشل تحميل البث</h4>
             <p className="text-xs text-zinc-500 leading-relaxed">{errorMessage}</p>
           </div>
           <button
             onClick={handleRetry}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-xs font-bold text-zinc-300 transition-all cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-zinc-700 text-xs font-bold text-zinc-300 transition-all"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>{lang === "ar" ? "إعادة المحاولة" : "Retry"}</span>
+            <span>إعادة المحاولة</span>
           </button>
         </div>
       )}
 
-      {/* Unmute Guide Overlay */}
+      {/* Unmute Guide Overlay (Premium touch for browsers blocking autoplay audio) */}
       {showUnmuteToast && (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleUnmuteClick();
-            resetControlsTimer();
-          }}
-          className={`absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-400 text-black shadow-xl flex items-center gap-2 text-xs font-black animate-bounce transition-all border border-amber-600/25 ${
-            showControls ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-          }`}
+          onClick={handleUnmuteClick}
+          className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-400 text-black shadow-xl flex items-center gap-2 text-xs font-black animate-bounce transition-all border border-amber-600/25"
         >
           <VolumeX className="w-4 h-4" />
-          <span>{lang === "ar" ? "انقر لتشغيل الصوت 🔊" : "Click to Unmute 🔊"}</span>
+          <span>انقر لتشغيل الصوت 🔊</span>
         </button>
       )}
 
-      {/* Custom Controls Bar (Bottom) */}
-      <div 
-        onClick={(e) => e.stopPropagation()}
-        className={`absolute bottom-0 inset-x-0 h-16 bg-gradient-to-t from-black/95 via-black/80 to-transparent flex items-center justify-between px-3 sm:px-4 pb-2 pt-3 transition-opacity duration-300 z-20 ${
-          showControls ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
-      >
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Play / Pause Toggle Button */}
+      {/* Hover Custom Controls Bar */}
+      <div className="absolute bottom-0 inset-x-0 h-16 bg-gradient-to-t from-black/90 to-transparent flex items-end justify-between px-4 pb-4 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-300 z-10">
+        <div className="flex items-center gap-3">
+          {/* Play / Pause Toggle */}
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              togglePlay();
-              resetControlsTimer();
-            }}
-            className="p-2 sm:p-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/25 flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+            onClick={togglePlay}
+            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all"
             title={isPlaying ? "إيقاف مؤقت" : "تشغيل"}
           >
-            {isPlaying ? (
-              <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
-            ) : (
-              <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current ml-0.5" />
-            )}
+            {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
           </button>
 
-          {/* Volume Control - Hidden on Mobile & Tablet, Visible on Desktop (lg:) */}
-          <div className="hidden lg:flex items-center gap-1.5 sm:gap-2">
+          {/* Volume Control with Slider */}
+          <div className="hidden lg:flex items-center gap-1.5 group/volume">
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleMute();
-                resetControlsTimer();
-              }}
-              className="p-1.5 sm:p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all flex items-center justify-center cursor-pointer"
+              onClick={toggleMute}
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all flex items-center justify-center cursor-pointer"
               title={isMuted ? "إلغاء كتم الصوت" : "كتم الصوت"}
             >
-              {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 text-amber-400" /> : <Volume2 className="w-4 h-4" />}
+              {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
             <input
               type="range"
@@ -488,7 +451,6 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
               step="0.05"
               value={isMuted ? 0 : volume}
               onChange={(e) => {
-                e.stopPropagation();
                 const val = parseFloat(e.target.value);
                 setVolume(val);
                 const video = videoRef.current;
@@ -502,29 +464,24 @@ export default function HlsVideoPlayer({ src, className = "", lang = "ar" }: Hls
                     setIsMuted(true);
                   }
                 }
-                resetControlsTimer();
               }}
-              className="w-12 sm:w-20 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-500 transition-all hover:bg-white/35"
+              className="w-16 sm:w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-500 transition-all hover:bg-white/35"
               style={{ accentColor: "#f59e0b" }}
             />
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-3">
           {/* Live Badge */}
-          <div className="flex items-center gap-1 sm:gap-1.5 bg-red-600/90 border border-red-500/40 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-black tracking-wide text-white shadow-md">
-            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-            <span>{lang === "ar" ? "مباشر" : "LIVE"}</span>
+          <div className="flex items-center gap-1.5 bg-red-600 px-2 py-0.5 rounded-md text-[9px] font-black tracking-wider text-white">
+            <span className="w-1 h-1 rounded-full bg-white animate-ping" />
+            <span>LIVE</span>
           </div>
 
           {/* Fullscreen Toggle */}
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleFullscreen();
-              resetControlsTimer();
-            }}
-            className="p-1.5 sm:p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
+            onClick={handleFullscreen}
+            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all"
             title="ملء الشاشة"
           >
             <Maximize className="w-4 h-4" />

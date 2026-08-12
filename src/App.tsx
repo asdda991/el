@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { 
   Trophy, 
   Film, 
@@ -8,9 +8,7 @@ import {
   Star, 
   Ticket, 
   X, 
-  Lock,
   Activity, 
-  Home,
   Tv, 
   Calendar, 
   ChevronRight, 
@@ -39,16 +37,7 @@ import {
   Eye,
   HelpCircle,
   Headphones,
-  Mail,
-  Maximize2,
-  Minimize2,
-  BarChart3,
-  Users,
-  TrendingUp,
-  Zap,
-  Smartphone,
-  Monitor,
-  Tablet
+  Mail
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -212,16 +201,6 @@ export default function App() {
   const [selectedMatchForDetails, setSelectedMatchForDetails] = useState<any | null>(null);
   const [activeDetailsTab, setActiveDetailsTab] = useState<"events" | "stats" | "lineup">("events");
 
-  // Site Logo & Settings State
-  const [siteLogo, setSiteLogo] = useState<string>(() => {
-    try {
-      return localStorage.getItem("el_portal_site_logo") || "";
-    } catch (e) {
-      return "";
-    }
-  });
-  const [isSavingLogo, setIsSavingLogo] = useState(false);
-
   // Admin control panel states
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [adminMatchIds, setAdminMatchIds] = useState<string[]>([]);
@@ -242,7 +221,7 @@ export default function App() {
   // States for Editing/Overriding Matches
   const [editingMatch, setEditingMatch] = useState<any | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
-  const [editTab, setEditTab] = useState<"basic" | "details" | "streams" | "scorers" | "stats">("basic");
+  const [editTab, setEditTab] = useState<"basic" | "details" | "scorers" | "stats">("basic");
   const [logoSelectorFor, setLogoSelectorFor] = useState<"A" | "B" | null>(null);
 
   // Live Stream Player state
@@ -257,204 +236,37 @@ export default function App() {
   const [editingStreams, setEditingStreams] = useState<{ name: string; url: string; type: "video" | "iframe" }[]>([]);
   const [copiedUrl, setCopiedUrl] = useState(false);
 
-  // Responsive device state & Mobile / Tablet detection
-  const [isMobile, setIsMobile] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      return window.innerWidth < 768;
-    }
-    return false;
-  });
-
-  const [isTablet, setIsTablet] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      return window.innerWidth >= 768 && window.innerWidth < 1024;
-    }
-    return false;
-  });
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-      setIsTablet(window.innerWidth >= 768 && window.innerWidth < 1024);
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  const [cinemaWindowMode, setCinemaWindowMode] = useState<"inline" | "fullscreen">("inline");
-
-  // Reset full screen mode when switching away from cinema tab
-  useEffect(() => {
-    if (activeTab !== "cinema" && cinemaWindowMode === "fullscreen") {
-      setCinemaWindowMode("inline");
-    }
-  }, [activeTab, cinemaWindowMode]);
-
-  // Analytics Dashboard States
-  const [adminModalTab, setAdminModalTab] = useState<"controls" | "analytics">("controls");
-  const [selectedAnalyticsDate, setSelectedAnalyticsDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
-  );
-  const [analyticsData, setAnalyticsData] = useState<{
-    selectedDate?: string;
-    isToday?: boolean;
-    activeVisitors: number;
-    totalVisits: number;
-    peakConcurrentViewers: number;
-    peakDate: string;
-    currentLiveViewers: number;
-    dayVisits?: number;
-    dayStreamViews?: number;
-    dayPeakConcurrent?: number;
-    avgWatchDuration?: number;
-    deviceBreakdown: { mobile: number; desktop: number; tablet: number };
-    matchViewersMap: Record<string, number>;
-    hourlyTrend: { time: string; visitors: number; liveViewers: number }[];
-  } | null>(null);
-  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
-
-  // Session tracking & Cardiac ping effect
-  useEffect(() => {
-    let sessionId = sessionStorage.getItem("elite_session_id");
-    let isNewVisit = false;
-    if (!sessionId) {
-      sessionId = "sess_" + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
-      sessionStorage.setItem("elite_session_id", sessionId);
-      isNewVisit = true;
-    }
-
-    const device = isMobile ? "mobile" : isTablet ? "tablet" : "desktop";
-
-    const sendPing = async (first = false) => {
-      try {
-        await fetch("/api/analytics/ping", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId,
-            matchId: streamingMatch?.id,
-            device,
-            isWatchingStream: isStreamModalOpen,
-            isNewVisit: first ? isNewVisit : false
-          })
-        });
-      } catch (e) {
-        // Silent
-      }
-    };
-
-    sendPing(true);
-    const interval = setInterval(() => {
-      if (!document.hidden) {
-        sendPing(false);
-      }
-    }, 20000);
-    return () => clearInterval(interval);
-  }, [isMobile, isTablet, isStreamModalOpen, streamingMatch]);
-
-  const fetchAnalyticsData = async (targetDate?: string) => {
-    try {
-      setIsLoadingAnalytics(true);
-      const dateToFetch = targetDate || selectedAnalyticsDate || new Date().toISOString().split("T")[0];
-      const res = await fetch(`/api/analytics/stats?date=${dateToFetch}`);
-      if (res.ok) {
-        const data = await res.json();
-        setAnalyticsData(data);
-      }
-    } catch (err) {
-      console.error("Failed to load analytics:", err);
-    } finally {
-      setIsLoadingAnalytics(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isAdminOpen && adminModalTab === "analytics") {
-      fetchAnalyticsData(selectedAnalyticsDate);
-      const interval = setInterval(() => fetchAnalyticsData(selectedAnalyticsDate), 5000);
-      return () => clearInterval(interval);
-    }
-  }, [isAdminOpen, adminModalTab, selectedAnalyticsDate]);
+  // Buffer settings state for Admin Panel
+  const [adminBufferMax, setAdminBufferMax] = useState(10);
+  const [adminBufferMaxMax, setAdminBufferMaxMax] = useState(15);
+  const [adminBufferSyncCount, setAdminBufferSyncCount] = useState(3);
+  const [isSavingBuffer, setIsSavingBuffer] = useState(false);
 
   // Time-based automatic match starter clock
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
-    }, 1000); // 1s tick for real-time countdowns
+    }, 10000); // 10s tick is precise and light
     return () => clearInterval(timer);
   }, []);
-
-  const parseSafariDate = (dateStr: any): Date | null => {
-    if (!dateStr || typeof dateStr !== "string") return null;
-    const isoStr = dateStr.includes(" ") && !dateStr.includes("T") 
-      ? dateStr.replace(" ", "T") 
-      : dateStr;
-    const d = new Date(isoStr);
-    return isNaN(d.getTime()) ? null : d;
-  };
-
-  const getStreamAvailability = (match: any, now: Date) => {
-    if (!match) return { isAvailable: false, minutesRemaining: 0, diffMs: 0, scheduledDate: null };
-
-    // If match status is live or ended, stream is active
-    if (match.status === "live" || match.status === "ended") {
-      return { isAvailable: true, minutesRemaining: 0, diffMs: 0, scheduledDate: null };
-    }
-
-    let scheduledDate: Date | null = parseSafariDate(match.utcTime);
-
-    if (!scheduledDate) {
-      const timeStr = match.time?.en || match.time?.ar || (typeof match.time === "string" ? match.time : "");
-      if (typeof timeStr === "string" && timeStr.trim() !== "") {
-        const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-        const cleanStr = timeStr.replace(/[٠-٩]/g, (d) => String(arabicDigits.indexOf(d)));
-        
-        const matchTimeResult = cleanStr.match(/(\d{1,2}):(\d{2})/);
-        if (matchTimeResult) {
-          const hours = parseInt(matchTimeResult[1], 10);
-          const minutes = parseInt(matchTimeResult[2], 10);
-          
-          const d = new Date(now);
-          d.setHours(hours, minutes, 0, 0);
-
-          const cleanStrLower = cleanStr.toLowerCase();
-          if (cleanStrLower.includes("tomorrow") || cleanStrLower.includes("غد")) {
-            d.setDate(d.getDate() + 1);
-          } else if (cleanStrLower.includes("yesterday") || cleanStrLower.includes("أمس")) {
-            d.setDate(d.getDate() - 1);
-          }
-          
-          scheduledDate = d;
-        }
-      }
-    }
-
-    if (!scheduledDate) {
-      return { isAvailable: true, minutesRemaining: 0, diffMs: 0, scheduledDate: null };
-    }
-
-    // Unlock stream 15 minutes before match start
-    const unlockDate = new Date(scheduledDate.getTime() - 15 * 60 * 1000);
-    const diffMs = unlockDate.getTime() - now.getTime();
-
-    if (diffMs > 0) {
-      const minutesRemaining = Math.ceil(diffMs / 60000);
-      return { isAvailable: false, minutesRemaining, diffMs, unlockDate, scheduledDate };
-    }
-
-    return { isAvailable: true, minutesRemaining: 0, diffMs: 0, unlockDate, scheduledDate };
-  };
 
   const autoProcessMatchStatus = (match: any, now: Date): any => {
     if (!match) return match;
     
-    // If the match status is explicitly marked as "ended" or "upcoming", respect that!
-    if (match.status === "ended" || match.status === "upcoming") {
+    // If the match is already marked as "ended" manually, we respect that!
+    if (match.status === "ended") {
       return match;
     }
 
-    let scheduledDate: Date | null = parseSafariDate(match.utcTime);
+    let scheduledDate: Date | null = null;
+
+    if (match.utcTime) {
+      const d = new Date(match.utcTime);
+      if (!isNaN(d.getTime())) {
+        scheduledDate = d;
+      }
+    }
 
     // Parse custom match time
     if (!scheduledDate) {
@@ -491,6 +303,11 @@ export default function App() {
         let periodTextEn = "Live";
         let periodTextAr = "مباشر";
 
+        if (elapsedMinutes >= 45 && elapsedMinutes < 60) {
+          periodTextEn = "HT";
+          periodTextAr = "بين الشوطين";
+        }
+
         return {
           ...match,
           status: "live",
@@ -508,42 +325,48 @@ export default function App() {
   };
 
   // Synchronize stream list when a match is selected for streaming
-  const prevStreamingMatchIdRef = useRef<string | null>(null);
-
   useEffect(() => {
     if (streamingMatch) {
-      const matchIdChanged = prevStreamingMatchIdRef.current !== String(streamingMatch.id);
-      prevStreamingMatchIdRef.current = String(streamingMatch.id);
-
       const baseStreams = streamingMatch.streams || [];
-      let initialized: { name: string; url: string; type: "video" | "iframe" }[] = [];
-
-      if (baseStreams.length > 0) {
-        initialized = baseStreams.map((srv: any, i: number) => ({
-          name: srv.name || (lang === "ar" ? `سيرفر ${i + 1}` : `Server ${i + 1}`),
-          url: srv.url || (i === 0 ? streamingMatch.streamUrl || "" : ""),
-          type: srv.type || (i === 0 ? streamingMatch.streamType || "iframe" : "iframe")
-        }));
-      } else {
-        initialized = [
-          { name: lang === "ar" ? "سيرفر 1" : "Server 1", url: streamingMatch.streamUrl || "", type: streamingMatch.streamType || "iframe" },
-          { name: lang === "ar" ? "سيرفر 2" : "Server 2", url: "", type: "iframe" },
-          { name: lang === "ar" ? "سيرفر 3" : "Server 3", url: "", type: "iframe" },
-          { name: lang === "ar" ? "سيرفر 4" : "Server 4", url: "", type: "iframe" }
-        ];
-      }
+      const initialized = [
+        { 
+          name: baseStreams[0]?.name && !["Server 1", "سيرفر 1"].includes(baseStreams[0].name)
+            ? baseStreams[0].name 
+            : (lang === "ar" ? "سيرفر 1" : "Server 1"), 
+          url: baseStreams[0]?.url || streamingMatch.streamUrl || "", 
+          type: baseStreams[0]?.type || streamingMatch.streamType || "iframe" 
+        },
+        { 
+          name: baseStreams[1]?.name && !["Server 2", "سيرفر 2"].includes(baseStreams[1].name)
+            ? baseStreams[1].name 
+            : (lang === "ar" ? "سيرفر 2" : "Server 2"), 
+          url: baseStreams[1]?.url || "", 
+          type: baseStreams[1]?.type || "iframe" 
+        },
+        { 
+          name: baseStreams[2]?.name && !["Server 3", "سيرفر 3"].includes(baseStreams[2].name)
+            ? baseStreams[2].name 
+            : (lang === "ar" ? "سيرفر 3" : "Server 3"), 
+          url: baseStreams[2]?.url || "", 
+          type: baseStreams[2]?.type || "iframe" 
+        },
+        { 
+          name: baseStreams[3]?.name && !["Server 4", "سيرفر 4"].includes(baseStreams[3].name)
+            ? baseStreams[3].name 
+            : (lang === "ar" ? "سيرفر 4" : "Server 4"), 
+          url: baseStreams[3]?.url || "", 
+          type: baseStreams[3]?.type || "iframe" 
+        }
+      ];
       setEditingStreams(initialized);
 
-      // Only reset activeStreamIndex and streamUrl if match ID changed or streamUrl is currently empty
-      if (matchIdChanged || !streamUrl) {
-        const firstValidIdx = initialized.findIndex(s => s.url);
-        const targetIdx = firstValidIdx !== -1 ? firstValidIdx : 0;
-        setActiveStreamIndex(targetIdx);
-        setStreamUrl(initialized[targetIdx]?.url || "");
-        setStreamType(initialized[targetIdx]?.type || "iframe");
-      }
+      // Find first stream with a URL, default to 0
+      const firstValidIdx = initialized.findIndex(s => s.url);
+      const targetIdx = firstValidIdx !== -1 ? firstValidIdx : 0;
+      setActiveStreamIndex(targetIdx);
+      setStreamUrl(initialized[targetIdx].url);
+      setStreamType(initialized[targetIdx].type);
     } else {
-      prevStreamingMatchIdRef.current = null;
       setStreamUrl("");
       setStreamType("iframe");
       setActiveStreamIndex(0);
@@ -551,8 +374,8 @@ export default function App() {
     }
   }, [streamingMatch, lang]);
 
-  // Load matches with retry on network error
-  const fetchMatches = async (retries = 2) => {
+  // Load matches
+  const fetchMatches = async () => {
     try {
       const res = await fetch("/api/matches");
       if (res.ok) {
@@ -572,70 +395,8 @@ export default function App() {
       }
     } catch (err) {
       console.error("Failed to load matches:", err);
-      if (retries > 0) {
-        setTimeout(() => fetchMatches(retries - 1), 2000);
-      }
     } finally {
       setIsLoadingMatches(false);
-    }
-  };
-
-  // Load site settings (including site logo)
-  const fetchSiteSettings = async () => {
-    try {
-      const res = await fetch("/api/site-settings");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.logo !== undefined) {
-          setSiteLogo(data.logo || "");
-          try {
-            localStorage.setItem("el_portal_site_logo", data.logo || "");
-          } catch (e) {
-            // ignore
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load site settings:", err);
-    }
-  };
-
-  const handleSaveSiteLogo = async () => {
-    try {
-      setIsSavingLogo(true);
-      const res = await fetch("/api/admin/site-settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ logo: siteLogo })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.settings?.logo !== undefined) {
-          setSiteLogo(data.settings.logo);
-          try {
-            localStorage.setItem("el_portal_site_logo", data.settings.logo);
-          } catch (e) {
-            // ignore
-          }
-        }
-        setAdminMessage({
-          text: lang === "ar" ? "تم حفظ وتحديث شعار الموقع بنجاح!" : "Site logo saved and updated successfully!",
-          type: "success"
-        });
-      } else {
-        setAdminMessage({
-          text: lang === "ar" ? "فشل حفظ الشعار، يرجى المحاولة مرة أخرى." : "Failed to save logo, please try again.",
-          type: "error"
-        });
-      }
-    } catch (err) {
-      console.error("Error saving site logo:", err);
-      setAdminMessage({
-        text: lang === "ar" ? "حدث خطأ أثناء الاتصال بالسيرفر" : "Connection error while saving logo",
-        type: "error"
-      });
-    } finally {
-      setIsSavingLogo(false);
     }
   };
 
@@ -653,15 +414,63 @@ export default function App() {
     }
   };
 
+  const loadAdminBufferSettings = async () => {
+    try {
+      const res = await fetch("/api/admin/buffer-settings");
+      if (res.ok) {
+        const data = await res.json();
+        setAdminBufferMax(Number(data.maxBufferLength) || 10);
+        setAdminBufferMaxMax(Number(data.maxMaxBufferLength) || 15);
+        setAdminBufferSyncCount(Number(data.liveSyncDurationCount) || 3);
+      }
+    } catch (err) {
+      console.error("Failed to load admin buffer settings:", err);
+    }
+  };
+
+  const handleSaveBufferSettings = async () => {
+    setIsSavingBuffer(true);
+    try {
+      const response = await fetch("/api/admin/buffer-settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          maxBufferLength: adminBufferMax,
+          maxMaxBufferLength: adminBufferMaxMax,
+          liveSyncDurationCount: adminBufferSyncCount,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setAdminMessage({
+          text: lang === "ar" ? "تم حفظ إعدادات البفر بنجاح وتطبيقها على المشاهدين!" : "Buffer settings saved successfully and applied to viewers!",
+          type: "success"
+        });
+        setTimeout(() => setAdminMessage(null), 3000);
+      } else {
+        setAdminMessage({
+          text: lang === "ar" ? "فشل حفظ إعدادات البفر." : "Failed to save buffer settings.",
+          type: "error"
+        });
+      }
+    } catch (error) {
+      console.error("Error saving buffer settings:", error);
+      setAdminMessage({
+        text: lang === "ar" ? "حدث خطأ أثناء حفظ إعدادات البفر." : "An error occurred while saving buffer settings.",
+        type: "error"
+      });
+    } finally {
+      setIsSavingBuffer(false);
+    }
+  };
+
   useEffect(() => {
     fetchMatches();
     loadAdminMatchIds();
-    fetchSiteSettings();
-    const interval = setInterval(() => {
-      if (!document.hidden) {
-        fetchMatches();
-      }
-    }, 30000); // refresh every 30s when tab is active
+    loadAdminBufferSettings();
+    const interval = setInterval(fetchMatches, 25000); // refresh every 25s
     return () => clearInterval(interval);
   }, []);
 
@@ -669,58 +478,51 @@ export default function App() {
   useEffect(() => {
     let eventSource: EventSource | null = null;
     let reconnectTimeout: any = null;
-    let initialStartTimeout: any = null;
-    let reconnectDelay = 3000;
 
     const connectSSE = () => {
-      if (eventSource) {
-        eventSource.close();
-      }
       console.log("[SSE] Connecting to /api/updates...");
       eventSource = new EventSource("/api/updates");
 
       eventSource.onopen = () => {
         console.log("[SSE] Real-time connection established successfully");
-        reconnectDelay = 3000; // Reset backoff on success
       };
 
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log("[SSE] Received real-time update event:", data);
+          
           if (
             data.type === "matches_updated" || 
             data.type === "match_override_updated" || 
-            data.type === "team_logos_updated"
+            data.type === "team_logos_updated" || 
+            data.type === "buffer_settings_updated"
           ) {
             fetchMatches();
             loadAdminMatchIds();
-          } else if (data.type === "site_settings_updated") {
-            fetchSiteSettings();
+            loadAdminBufferSettings();
           }
-        } catch {
-          // Heartbeats or unparseable messages ignored
+        } catch (err) {
+          console.error("[SSE] Failed to parse SSE event message:", err);
         }
       };
 
-      eventSource.onerror = () => {
+      eventSource.onerror = (err) => {
+        console.warn("[SSE] Connection error, closing and scheduling reconnect...", err);
         if (eventSource) {
           eventSource.close();
         }
-        if (reconnectTimeout) clearTimeout(reconnectTimeout);
-        reconnectTimeout = setTimeout(connectSSE, reconnectDelay);
-        reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
+        reconnectTimeout = setTimeout(connectSSE, 3000);
       };
     };
 
-    // Delay SSE connection slightly on iOS Safari to allow initial matches fetch & render to finish instantly
-    initialStartTimeout = setTimeout(() => {
+    // Connect SSE after short delay so iOS Safari completes initial document rendering smoothly
+    const initialSseTimer = setTimeout(() => {
       connectSSE();
-    }, 1200);
+    }, 300);
 
     return () => {
-      if (initialStartTimeout) {
-        clearTimeout(initialStartTimeout);
-      }
+      clearTimeout(initialSseTimer);
       if (eventSource) {
         eventSource.close();
       }
@@ -950,7 +752,7 @@ export default function App() {
             streams: updatedStreams
           };
         });
-        alert(lang === "ar" ? "تم حفظ وتحديث جميع سيرفرات البث بنجاح!" : "All stream servers updated and saved successfully!");
+        alert(lang === "ar" ? "تم حفظ وتحديث السيرفرات الأربعة بنجاح!" : "All four servers updated and saved successfully!");
       } else {
         alert(lang === "ar" ? "فشل حفظ السيرفرات" : "Failed to save servers");
       }
@@ -963,8 +765,8 @@ export default function App() {
   const formatMatchTime = (match: any, currentLang: "ar" | "en") => {
     if (match.utcTime) {
       try {
-        const d = parseSafariDate(match.utcTime);
-        if (d && !isNaN(d.getTime())) {
+        const d = new Date(match.utcTime);
+        if (!isNaN(d.getTime())) {
           return d.toLocaleString(currentLang === "ar" ? "ar-EG" : "en-US", {
             weekday: "short",
             month: "short",
@@ -982,25 +784,52 @@ export default function App() {
   };
 
   const shouldShowPlayButton = (match: any): boolean => {
-    // Admin can always access and configure streams for any match
-    if (userRole === "admin") return true;
-
     if (match.status === "ended") return false;
-
-    // Check 15-minute window or live status
-    const avail = getStreamAvailability(match, currentTime);
-
-    // If stream URL or streams exist
-    const hasStream = Boolean(match.streamUrl || (match.streams && match.streams.some((s: any) => s.url && s.url.trim() !== "")));
-    if (hasStream) {
-      // Show play button for viewers ONLY when within 15 minutes of kick-off or live
-      return avail.isAvailable;
-    }
-
-    if (match.status === "upcoming") return false;
     if (match.status === "live") return true;
 
-    return avail.isAvailable;
+    if (!match.utcTime && !match.time) return true;
+
+    let scheduledDate: Date | null = null;
+
+    if (match.utcTime) {
+      const d = new Date(match.utcTime);
+      if (!isNaN(d.getTime())) {
+        scheduledDate = d;
+      }
+    }
+
+    if (!scheduledDate && match.time) {
+      const timeStr = match.time.en || match.time.ar || (typeof match.time === "string" ? match.time : "");
+      if (timeStr) {
+        const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+        const cleanStr = timeStr.replace(/[٠-٩]/g, (d: string) => String(arabicDigits.indexOf(d)));
+        
+        const matchTimeResult = cleanStr.match(/(\d{1,2}):(\d{2})/);
+        if (matchTimeResult) {
+          const hours = parseInt(matchTimeResult[1], 10);
+          const minutes = parseInt(matchTimeResult[2], 10);
+          
+          const d = new Date();
+          d.setHours(hours, minutes, 0, 0);
+
+          const cleanStrLower = cleanStr.toLowerCase();
+          if (cleanStrLower.includes("tomorrow") || cleanStrLower.includes("غد")) {
+            d.setDate(d.getDate() + 1);
+          } else if (cleanStrLower.includes("yesterday") || cleanStrLower.includes("أمس")) {
+            d.setDate(d.getDate() - 1);
+          }
+          scheduledDate = d;
+        }
+      }
+    }
+
+    if (!scheduledDate) return true;
+
+    const now = new Date();
+    const startTime = scheduledDate.getTime();
+    const fifteenMinsBefore = startTime - 15 * 60 * 1000;
+
+    return now.getTime() >= fifteenMinsBefore;
   };
 
   const getTranslation = (val: any, fallback = "") => {
@@ -1169,21 +998,8 @@ export default function App() {
           
           {/* Logo and Greeting Area */}
           <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center overflow-hidden border shrink-0 ${
-              theme === 'black' ? 'bg-zinc-900 text-amber-500 border-zinc-800' : 'bg-white text-zinc-950 border-zinc-200 shadow-sm'
-            }`}>
-              {siteLogo ? (
-                <img 
-                  src={siteLogo} 
-                  alt="Site Logo" 
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                  }}
-                />
-              ) : (
-                <Sparkles className="w-7 h-7 animate-pulse" />
-              )}
+            <div className={`p-3 rounded-2xl ${theme === 'black' ? 'bg-zinc-900 text-amber-500 border border-zinc-800' : 'bg-white text-zinc-950 border border-zinc-200 shadow-sm'}`}>
+              <Sparkles className="w-8 h-8 animate-pulse" />
             </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
@@ -1425,31 +1241,10 @@ export default function App() {
                                   : "bg-amber-500/10 text-amber-500 border border-amber-500/20"
                             }`}>
                               {isLive && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />}
-                              {isLive ? match.statusText?.[lang] || match.statusText?.en || t.live : isEnded ? t.ended : match.statusText?.[lang] || match.statusText?.en || t.upcoming}
+                              {isLive ? match.statusText?.[lang] || match.statusText?.en || t.live : isEnded ? t.ended : t.upcoming}
                             </span>
 
                             <div className="flex items-center gap-2">
-                              {userRole === "admin" && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setStreamingMatch(match);
-                                    const streams = match.streams && match.streams.length > 0 
-                                      ? match.streams 
-                                      : [{ name: lang === "ar" ? "سيرفر 1" : "Server 1", url: match.streamUrl || "", type: match.streamType || "iframe" }];
-                                    setEditingStreams(streams);
-                                    setStreamUrl(streams[0]?.url || match.streamUrl || "");
-                                    setStreamType(streams[0]?.type || match.streamType || "iframe");
-                                    setIsStreamModalOpen(true);
-                                  }}
-                                  className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-black flex items-center gap-1 transition cursor-pointer"
-                                  title={lang === "ar" ? "إضافة أو تعديل روابط البث لهذه المباراة" : "Add or Edit Streams for this Match"}
-                                >
-                                  <Tv className="w-3 h-3" />
-                                  <span>{lang === "ar" ? "إدارة البث" : "Manage Stream"}</span>
-                                </button>
-                              )}
                               <span className={`text-[10px] font-mono tracking-wider ${theme === 'black' ? 'text-zinc-500' : 'text-zinc-400'}`}>
                                 {timeString}
                               </span>
@@ -1498,9 +1293,7 @@ export default function App() {
                                     <Play className="w-5 h-5 fill-current ml-0.5 text-black" />
                                   </button>
                                   <span className="text-[10px] font-black text-amber-500 mt-2.5 block tracking-wider uppercase animate-pulse">
-                                    {userRole === "viewer" && !getStreamAvailability(match, currentTime).isAvailable
-                                      ? (lang === "ar" ? "يفتح قبل 15د" : "Opens in 15m")
-                                      : (lang === "ar" ? "بث مباشر" : "Live Stream")}
+                                    {lang === "ar" ? "بث مباشر" : "Live Stream"}
                                   </span>
                                 </>
                               ) : (
@@ -1597,132 +1390,81 @@ export default function App() {
                 transition={{ duration: 0.3 }}
                 className="space-y-6"
               >
-                {/* Fullscreen Mobile & Tablet View for Cinema */}
-                {cinemaWindowMode === "fullscreen" && (isMobile || isTablet) ? (
-                  <div className="fixed inset-0 z-[100] bg-black w-screen h-screen flex flex-col p-0 m-0 overflow-hidden">
-                    {/* Fullscreen Header */}
-                    <div className="p-3 bg-zinc-950/90 border-b border-zinc-800 flex items-center justify-between shrink-0">
-                      <div className="flex items-center gap-2">
-                        <Film className="w-5 h-5 text-red-500 animate-pulse" />
-                        <span className="text-xs font-black text-white">CinemaOS - {lang === "ar" ? "شاشة كاملة" : "Fullscreen"}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setCinemaWindowMode("inline")}
-                          className="px-3 py-1.5 rounded-xl bg-zinc-800 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md border border-zinc-700 hover:bg-zinc-700 cursor-pointer"
-                        >
-                          <Minimize2 className="w-4 h-4" />
-                          <span>{lang === "ar" ? "خروج من الشاشة الكاملة" : "Exit Fullscreen"}</span>
-                        </button>
-                        <button
-                          onClick={() => setCinemaWindowMode("inline")}
-                          className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </div>
-                    {/* Fullscreen Iframe */}
-                    <div className="flex-1 w-full h-full bg-black">
-                      <iframe
-                        id="cinemaos-fullscreen-iframe"
-                        src="https://cinemaos.live/"
-                        title="CinemaOS Fullscreen Client"
-                        className="w-full h-full border-none bg-black"
-                        allow="autoplay; encrypted-media; fullscreen"
-                        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className={`p-4 rounded-3xl border overflow-hidden ${
-                    theme === "black" 
-                      ? "bg-zinc-950/80 border-zinc-800" 
-                      : "bg-white border-zinc-200 shadow-sm"
+                <div className={`p-4 rounded-3xl border overflow-hidden ${
+                  theme === "black" 
+                    ? "bg-zinc-950/80 border-zinc-800" 
+                    : "bg-white border-zinc-200 shadow-sm"
+                }`}>
+                  {/* Iframe navigation/header utility */}
+                  <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 pb-4 mb-4 border-b ${
+                    theme === "black" ? "border-zinc-900" : "border-zinc-100"
                   }`}>
-                    {/* Iframe navigation/header utility */}
-                    <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 pb-4 mb-4 border-b ${
-                      theme === "black" ? "border-zinc-900" : "border-zinc-100"
-                    }`}>
-                      <div className="flex items-center gap-2.5">
-                        <div className={`p-2 rounded-xl ${
-                          theme === "black" ? "bg-red-500/10 text-red-500" : "bg-zinc-100 text-zinc-900"
-                        }`}>
-                          <Film className="w-5 h-5 animate-pulse" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-bold tracking-tight">CinemaOS</h3>
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                              {lang === "ar" ? "اتصال آمن" : "Secure Link"}
-                            </span>
-                          </div>
-                          <p className={`text-[10px] ${theme === 'black' ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                            cinemaos.live
-                          </p>
-                        </div>
+                    <div className="flex items-center gap-2.5">
+                      <div className={`p-2 rounded-xl ${
+                        theme === "black" ? "bg-red-500/10 text-red-500" : "bg-zinc-100 text-zinc-900"
+                      }`}>
+                        <Film className="w-5 h-5 animate-pulse" />
                       </div>
-
-                      <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-wrap">
-                        {/* Fullscreen button ONLY for Mobile & Tablet (Hidden on Desktop / Computer) */}
-                        {(isMobile || isTablet) && (
-                          <button
-                            onClick={() => setCinemaWindowMode("fullscreen")}
-                            className="p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all duration-300 bg-amber-500 hover:bg-amber-400 text-black font-extrabold shadow-md shadow-amber-500/20 cursor-pointer"
-                            title={lang === "ar" ? "عرض شاشة كاملة" : "Fullscreen"}
-                          >
-                            <Maximize2 className="w-3.5 h-3.5" />
-                            <span>{lang === "ar" ? "شاشة كاملة" : "Fullscreen"}</span>
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => {
-                            const iframe = document.getElementById("cinemaos-iframe") as HTMLIFrameElement;
-                            if (iframe) iframe.src = "https://cinemaos.live/";
-                          }}
-                          className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all duration-300 ${
-                            theme === "black" 
-                              ? "bg-zinc-900 hover:bg-zinc-850 text-zinc-300 border border-zinc-850" 
-                              : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200"
-                          }`}
-                          title={lang === "ar" ? "الرئيسية" : "Home"}
-                        >
-                          <Home className="w-3.5 h-3.5" />
-                          <span className="hidden xs:inline">{lang === "ar" ? "الرئيسية" : "Home"}</span>
-                        </button>
-
-                        <a
-                          href="https://cinemaos.live/"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all duration-300 ${
-                            theme === "black" 
-                              ? "bg-white hover:bg-zinc-200 text-black border border-white" 
-                              : "bg-zinc-950 hover:bg-zinc-800 text-white"
-                          }`}
-                        >
-                          <Share2 className="w-3.5 h-3.5" />
-                          <span className="hidden xs:inline">{lang === "ar" ? "فتح خارجي" : "Open Tab"}</span>
-                        </a>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold tracking-tight">CinemaOS</h3>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            {lang === "ar" ? "اتصال آمن" : "Secure Link"}
+                          </span>
+                        </div>
+                        <p className={`text-[10px] ${theme === 'black' ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                          cinemaos.live
+                        </p>
                       </div>
                     </div>
 
-                    {/* Fully responsive sandbox safe iframe */}
-                    <div className={`relative w-full rounded-2xl overflow-hidden border ${
-                      theme === "black" ? "border-zinc-900 bg-[#020202]" : "border-zinc-100 bg-slate-50"
-                    }`}>
-                      <iframe
-                        id="cinemaos-iframe"
-                        src="https://cinemaos.live/"
-                        title="CinemaOS live client"
-                        className="w-full h-[650px] md:h-[780px] lg:h-[850px] border-none"
-                        allow="autoplay; encrypted-media; fullscreen"
-                        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
-                      />
+                    <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+                      <button
+                        onClick={() => {
+                          const iframe = document.getElementById("cinemaos-iframe") as HTMLIFrameElement;
+                          if (iframe) iframe.src = "https://cinemaos.live/";
+                        }}
+                        className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all duration-300 ${
+                          theme === "black" 
+                            ? "bg-zinc-900 hover:bg-zinc-850 text-zinc-300 border border-zinc-850" 
+                            : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200"
+                        }`}
+                        title={lang === "ar" ? "إعادة تحميل الصفحة" : "Reload Screen"}
+                      >
+                        <Activity className="w-3.5 h-3.5" />
+                        <span className="hidden xs:inline">{lang === "ar" ? "تحديث" : "Refresh"}</span>
+                      </button>
+
+                      <a
+                        href="https://cinemaos.live/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all duration-300 ${
+                          theme === "black" 
+                            ? "bg-white hover:bg-zinc-200 text-black border border-white" 
+                            : "bg-zinc-950 hover:bg-zinc-800 text-white"
+                        }`}
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>{lang === "ar" ? "فتح في نافذة جديدة" : "Open in New Tab"}</span>
+                      </a>
                     </div>
                   </div>
-                )}
+
+                  {/* Fully responsive sandbox safe iframe */}
+                  <div className={`relative w-full rounded-2xl overflow-hidden border ${
+                    theme === "black" ? "border-zinc-900 bg-[#020202]" : "border-zinc-100 bg-slate-50"
+                  }`}>
+                    <iframe
+                      id="cinemaos-iframe"
+                      src="https://cinemaos.live/"
+                      title="CinemaOS live client"
+                      className="w-full h-[650px] md:h-[780px] lg:h-[850px] border-none"
+                      allow="autoplay; encrypted-media; fullscreen"
+                      sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
+                    />
+                  </div>
+                </div>
               </motion.div>
             )}
 
@@ -1731,7 +1473,14 @@ export default function App() {
 
       </div>
 
-
+      {/* FOOTER */}
+      <footer className={`fixed bottom-0 left-0 right-0 z-40 border-t py-3 text-center text-[10px] font-medium tracking-wide ${
+        theme === "black" 
+          ? "border-zinc-900 bg-zinc-950 text-zinc-500" 
+          : "border-zinc-200 bg-white text-zinc-400"
+      }`}>
+        <p>© 2026 {lang === "ar" ? "بوابة النخبة للرياضة والسينما. جميع الحقوق محفوظة." : "Elite Sports & Cinema Portal. All rights reserved."}</p>
+      </footer>
 
       {/* BOOKING MODAL (TICKET SELECTOR) */}
       <AnimatePresence>
@@ -1925,32 +1674,42 @@ export default function App() {
       {/* LIVE STREAM PLAYER MODAL */}
       <AnimatePresence>
         {isStreamModalOpen && streamingMatch && (
-          <div className={`fixed inset-0 bg-black/95 md:backdrop-blur-md z-50 overflow-y-auto ${isMobile ? 'p-0' : 'p-2 sm:p-6'} flex justify-center items-start`}>
+          <div className="fixed inset-0 bg-black/95 md:backdrop-blur-md z-50 overflow-y-auto p-2 sm:p-6 flex justify-center items-start">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 30 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 30 }}
               transition={{ type: "spring", damping: 25, stiffness: 350 }}
-              className={`w-full ${
-                isMobile 
-                  ? "fixed inset-0 z-50 w-screen h-screen rounded-none border-none p-0 bg-black flex flex-col overflow-hidden" 
-                  : "max-w-5xl my-auto sm:my-4 rounded-3xl"
-              } border ${theme === 'black' ? 'border-zinc-850 bg-zinc-950 text-zinc-100' : 'border-zinc-200 bg-white text-zinc-900'} overflow-hidden shadow-2xl transition-all duration-300`}
+              className={`w-full my-auto sm:my-4 ${
+                isTheaterMode ? "max-w-7xl" : "max-w-5xl"
+              } rounded-3xl border ${theme === 'black' ? 'border-zinc-850 bg-zinc-950 text-zinc-100' : 'border-zinc-200 bg-white text-zinc-900'} overflow-hidden shadow-2xl transition-all duration-300`}
             >
               {/* Modal Header */}
-              <div className={`p-4 sm:p-6 border-b ${theme === 'black' ? 'border-zinc-900 bg-zinc-900/40' : 'border-zinc-200 bg-zinc-50'} flex items-center justify-between shrink-0`}>
+              <div className={`p-4 sm:p-6 border-b ${theme === 'black' ? 'border-zinc-900 bg-zinc-900/40' : 'border-zinc-200 bg-zinc-50'} flex items-center justify-between`}>
                 <div className="flex items-center gap-3">
                   <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
                   <span className="text-xs sm:text-sm font-black text-red-500 tracking-wider uppercase flex items-center gap-1">
                     {lang === "ar" ? "بث مباشر" : "LIVE STREAM"}
                   </span>
                   <span className={`text-xs ${theme === 'black' ? 'text-zinc-650' : 'text-zinc-300'} hidden sm:inline`}>|</span>
-                  <span className={`text-xs ${theme === 'black' ? 'text-zinc-400' : 'text-zinc-600'} font-bold truncate max-w-[150px] sm:max-w-none`}>
+                  <span className={`text-xs ${theme === 'black' ? 'text-zinc-400' : 'text-zinc-600'} font-bold hidden sm:inline`}>
                     {streamingMatch.teamA[lang] || streamingMatch.teamA.en} vs {streamingMatch.teamB[lang] || streamingMatch.teamB.en}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {/* Theater Mode Toggle button (only when playing a stream) */}
+                  {streamUrl && (
+                    <button
+                      onClick={() => setIsTheaterMode(!isTheaterMode)}
+                      className={`p-2 rounded-xl ${theme === 'black' ? 'bg-zinc-900 hover:bg-zinc-850 text-zinc-400 hover:text-zinc-100' : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 hover:text-zinc-800'} transition-all text-xs font-bold flex items-center gap-1`}
+                      title={lang === "ar" ? "نمط السينما" : "Theater Mode"}
+                    >
+                      <Tv className="w-4 h-4" />
+                      <span className="hidden md:inline">{lang === "ar" ? "نمط السينما" : "Theater"}</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={() => {
                       setIsStreamModalOpen(false);
@@ -1972,25 +1731,25 @@ export default function App() {
                   
                   {userRole === "viewer" ? (
                     /* VIEWERS VIEW */
-                    !streamUrl || !getStreamAvailability(streamingMatch, currentTime).isAvailable ? (
-                      /* VIEWER EMPTY / UPCOMING STATE */
+                    !streamUrl ? (
+                      /* VIEWER EMPTY STATE */
                       <div className="text-center py-12 px-6 max-w-xl mx-auto w-full space-y-6">
                         <div className={`w-16 h-16 mx-auto rounded-full ${theme === 'black' ? 'bg-zinc-900 text-zinc-500 border border-zinc-800' : 'bg-zinc-100 text-zinc-400 border border-zinc-200'} flex items-center justify-center`}>
                           <Eye className="w-8 h-8 animate-pulse" />
                         </div>
                         <div className="space-y-2">
                           <h3 className={`text-lg sm:text-xl font-black ${theme === 'black' ? 'text-zinc-300' : 'text-zinc-800'}`}>
-                            {lang === "ar" ? "رابط البث المباشر غير متوفر بعد (قريباً)" : "Live Stream Not Available Yet (Soon)"}
+                            {lang === "ar" ? "رابط البث المباشر غير متوفر بعد" : "Live Stream Not Available Yet"}
                           </h3>
                           <p className={`text-xs sm:text-sm ${theme === 'black' ? 'text-zinc-400' : 'text-zinc-650'} leading-relaxed`}>
                             {lang === "ar"
-                              ? "لم ينطلق البث المباشر لهذه المباراة بعد. يتوفر البث تلقائياً للمشاهدين قبل انطلاق المباراة بـ 15 دقيقة."
-                              : "Live stream is not active yet. It will automatically become available to viewers 15 minutes before kick-off."}
+                              ? "لم يقم مسؤول الموقع بإضافة رابط البث المباشر لهذه المباراة بعد. يرجى الانتظار لحين قيام المسؤول بتحديث الرابط ومتابعة البث."
+                              : "The site administrator has not added the live stream link for this match yet. Please wait until the administrator configures the stream."}
                           </p>
                         </div>
                         <div className={`py-2.5 px-4 rounded-xl ${theme === 'black' ? 'bg-zinc-900/50 border border-zinc-850 text-amber-500/80' : 'bg-amber-50 border border-amber-200 text-amber-600'} inline-flex items-center gap-2 text-xs font-semibold`}>
                           <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                          <span>{lang === "ar" ? "سيتم تفعيل المشغل تلقائياً عند اقتراب موعد المباراة" : "Player will auto-activate closer to match time"}</span>
+                          <span>{lang === "ar" ? "سيتم التحديث فور إضافته من قبل المسؤول" : "Will automatically update when added by the admin"}</span>
                         </div>
                       </div>
                     ) : (
@@ -2011,24 +1770,22 @@ export default function App() {
                             <HlsVideoPlayer
                               src={streamUrl}
                               className="absolute inset-0 w-full h-full"
-                              lang={lang}
                             />
                           )}
 
-
+                          {/* Top-Right watermark/status overlay */}
+                          <div className="absolute top-4 left-4 pointer-events-none flex items-center gap-2 bg-black/80 px-2.5 py-1 rounded-full text-[9px] font-bold text-red-500 border border-red-500/20">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                            <span>{lang === "ar" ? "بث مباشر" : "LIVE"}</span>
+                          </div>
                         </div>
 
                         {/* Server Selector */}
                         <div className={`flex flex-col gap-2.5 p-4 rounded-2xl ${theme === 'black' ? 'bg-zinc-900/35 border border-zinc-900/80' : 'bg-zinc-50 border border-zinc-200'}`}>
-                          <div className="flex items-center justify-between">
-                            <span className={`text-[10px] uppercase tracking-wider font-black ${theme === 'black' ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                              {lang === "ar" ? "اختر سيرفر المشاهدة:" : "Choose Streaming Server:"}
-                            </span>
-                            <span className="text-[10px] font-bold text-amber-500">
-                              ({editingStreams.length} {lang === "ar" ? "سيرفرات" : "Servers"})
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
+                          <span className={`text-[10px] uppercase tracking-wider font-black ${theme === 'black' ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                            {lang === "ar" ? "اختر سيرفر المشاهدة:" : "Choose Streaming Server:"}
+                          </span>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                             {editingStreams.map((srv, idx) => {
                               const isAvailable = !!srv.url;
                               const isSelected = activeStreamIndex === idx;
@@ -2041,7 +1798,7 @@ export default function App() {
                                     setStreamUrl(srv.url);
                                     setStreamType(srv.type);
                                   }}
-                                  className={`px-3.5 py-2.5 rounded-xl text-xs font-black transition-all flex flex-col items-center justify-center gap-1 border flex-1 min-w-[110px] sm:min-w-[130px] ${
+                                  className={`px-3 py-2.5 rounded-xl text-xs font-black transition-all flex flex-col items-center justify-center gap-1 border ${
                                     isSelected
                                       ? "bg-amber-500 text-black border-amber-600/20 shadow-lg shadow-amber-500/10"
                                       : isAvailable
@@ -2124,10 +1881,10 @@ export default function App() {
                           </div>
                           <div>
                             <h3 className="text-sm font-black text-red-500">
-                              {lang === "ar" ? "لوحة التحكم بسيرفرات البث المباشر" : "Streaming Servers Admin Panel"}
+                              {lang === "ar" ? "لوحة التحكم بالسيرفرات الأربعة" : "Four Servers Admin Panel"}
                             </h3>
                             <p className={`text-[10px] ${theme === 'black' ? 'text-zinc-500' : 'text-zinc-450'} leading-relaxed`}>
-                              {lang === "ar" ? "يمكنك إضافة، تعديل، ومعاينة وحفظ جميع سيرفرات البث للمباراة (سيرفر 1، 2، 3، 4، 5، ...)" : "Configure, preview, add, and save unlimited stream sources for this match"}
+                              {lang === "ar" ? "يمكنك ضبط ومعاينة وحفظ 4 مصادر بث مختلفة للمباراة" : "Configure, preview, and save 4 different stream sources for this match"}
                             </p>
                           </div>
                         </div>
@@ -2157,11 +1914,14 @@ export default function App() {
                               <HlsVideoPlayer
                                 src={streamUrl}
                                 className="absolute inset-0 w-full h-full"
-                                lang={lang}
                               />
                             )}
 
-
+                            {/* Top-Right watermark/status overlay */}
+                            <div className="absolute top-4 left-4 pointer-events-none flex items-center gap-2 bg-black/80 px-2.5 py-1 rounded-full text-[9px] font-bold text-red-500 border border-red-500/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                              <span>{lang === "ar" ? "معاينة البث" : "PREVIEWING"}</span>
+                            </div>
                           </div>
 
                           {/* Preview Status Banner */}
@@ -2201,44 +1961,23 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* Dynamic Servers Editing Section */}
+                      {/* 4 Servers Editing Fields */}
                       <div className="space-y-4 pt-2">
-                        <div className="flex items-center justify-between border-b pb-2">
-                          <span className={`text-[11px] uppercase tracking-wider font-black ${theme === 'black' ? 'text-zinc-400' : 'text-zinc-600'}`}>
-                            {lang === "ar" ? `سيرفرات البث المتاحة للمباراة (${editingStreams.length}):` : `Match Streaming Servers (${editingStreams.length}):`}
-                          </span>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const nextNum = editingStreams.length + 1;
-                              setEditingStreams(prev => [
-                                ...prev,
-                                {
-                                  name: lang === "ar" ? `سيرفر ${nextNum}` : `Server ${nextNum}`,
-                                  url: "",
-                                  type: "iframe"
-                                }
-                              ]);
-                            }}
-                            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-black rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/10 cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>{lang === "ar" ? "إضافة سيرفر جديد ➕" : "Add New Server ➕"}</span>
-                          </button>
-                        </div>
+                        <span className={`text-[11px] uppercase tracking-wider font-black ${theme === 'black' ? 'text-zinc-400 border-zinc-900' : 'text-zinc-550 border-zinc-200'} block border-b pb-2`}>
+                          {lang === "ar" ? "روابط السيرفرات الأربعة للمباراة:" : "Configuration of the 4 Servers for Match:"}
+                        </span>
 
                         <div className="space-y-4">
                           {editingStreams.map((srv, idx) => (
                             <div key={`stream-config-${idx}`} className={`p-4 rounded-xl ${theme === 'black' ? 'bg-zinc-900/30 border border-zinc-900 hover:border-zinc-850' : 'bg-zinc-50 border border-zinc-200 hover:border-zinc-300'} transition-all space-y-3`}>
-                              {/* Server Title & Action Switchers */}
-                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                              {/* Server Title & Preview Switch */}
+                              <div className="flex items-center justify-between">
                                 <span className="text-xs font-black text-amber-500 flex items-center gap-1.5">
                                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                                   {srv.name || `Server ${idx + 1}`}
                                 </span>
 
-                                <div className="flex items-center gap-2 flex-wrap">
+                                <div className="flex items-center gap-2">
                                   {srv.url && (
                                     <button
                                       type="button"
@@ -2261,49 +2000,24 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const demoUrls = [
-                                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-                                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-                                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
-                                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
-                                      ];
                                       const updated = [...editingStreams];
                                       updated[idx] = {
                                         ...updated[idx],
-                                        url: demoUrls[idx % demoUrls.length],
+                                        url: idx === 0 
+                                          ? "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                                          : idx === 1
+                                          ? "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+                                          : idx === 2
+                                          ? "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+                                          : "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
                                         type: "video"
                                       };
                                       setEditingStreams(updated);
                                     }}
-                                    className={`px-2 py-1 rounded ${theme === 'black' ? 'bg-zinc-900 hover:bg-zinc-850 border border-zinc-850 text-zinc-500 hover:text-zinc-350' : 'bg-zinc-100 hover:bg-zinc-200 border-zinc-200 text-zinc-600 hover:text-zinc-800'} text-[9px] font-bold transition-all`}
+                                    className={`px-2 py-1 rounded ${theme === 'black' ? 'bg-zinc-900 hover:bg-zinc-850 border border-zinc-850 hover:border-zinc-800 text-zinc-500 hover:text-zinc-350' : 'bg-zinc-100 hover:bg-zinc-200 border-zinc-200 hover:border-zinc-300 text-zinc-600 hover:text-zinc-800'} text-[9px] font-bold transition-all`}
                                   >
                                     {lang === "ar" ? "رابط تجريبي 🪄" : "Load Demo 🪄"}
                                   </button>
-
-                                  {/* Delete Server button if > 1 servers */}
-                                  {editingStreams.length > 1 && (
-                                    <button
-                                      type="button"
-                                      title={lang === "ar" ? "حذف هذا السيرفر" : "Delete this server"}
-                                      onClick={() => {
-                                        const updated = editingStreams.filter((_, i) => i !== idx);
-                                        setEditingStreams(updated);
-                                        if (activeStreamIndex === idx) {
-                                          const newIdx = Math.max(0, idx - 1);
-                                          setActiveStreamIndex(newIdx);
-                                          setStreamUrl(updated[newIdx]?.url || "");
-                                          setStreamType(updated[newIdx]?.type || "iframe");
-                                        } else if (activeStreamIndex > idx) {
-                                          setActiveStreamIndex(prev => prev - 1);
-                                        }
-                                      }}
-                                      className="px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-[9px] font-bold transition-all flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                      <span>{lang === "ar" ? "حذف" : "Delete"}</span>
-                                    </button>
-                                  )}
                                 </div>
                               </div>
 
@@ -2316,7 +2030,7 @@ export default function App() {
                                   </label>
                                   <input
                                     type="text"
-                                    placeholder={lang === "ar" ? `مثال: سيرفر ${idx + 1}` : `e.g. Server ${idx + 1}`}
+                                    placeholder={lang === "ar" ? "مثال: سيرفر 1" : "e.g. Server 1"}
                                     value={srv.name}
                                     onChange={(e) => {
                                       const updated = [...editingStreams];
@@ -2397,40 +2111,17 @@ export default function App() {
                       </div>
 
                       {/* Action buttons */}
-                      <div className={`flex items-center justify-between gap-3 pt-4 border-t ${theme === 'black' ? 'border-zinc-900' : 'border-zinc-200'} flex-wrap`}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const nextNum = editingStreams.length + 1;
-                            setEditingStreams(prev => [
-                              ...prev,
-                              {
-                                name: lang === "ar" ? `سيرفر ${nextNum}` : `Server ${nextNum}`,
-                                url: "",
-                                type: "iframe"
-                              }
-                            ]);
-                          }}
-                          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                            theme === 'black'
-                              ? "bg-zinc-900 hover:bg-zinc-850 text-zinc-300 border-zinc-800"
-                              : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border-zinc-200"
-                          }`}
-                        >
-                          <Plus className="w-4 h-4 text-amber-500" />
-                          <span>{lang === "ar" ? "إضافة سيرفر جديد ➕" : "Add New Server ➕"}</span>
-                        </button>
-
+                      <div className={`flex items-center justify-end gap-3 pt-4 border-t ${theme === 'black' ? 'border-zinc-900' : 'border-zinc-200'}`}>
                         {/* Save all button */}
                         <button
                           type="button"
                           onClick={() => {
                             handleSaveAllStreams(streamingMatch.id, editingStreams);
                           }}
-                          className="px-6 py-3 bg-green-500 hover:bg-green-400 text-black font-black rounded-xl text-xs sm:text-sm transition-all flex items-center gap-2 border border-green-600/15 shadow-lg shadow-green-500/10 cursor-pointer"
+                          className="px-6 py-3 bg-green-500 hover:bg-green-400 text-black font-black rounded-xl text-xs sm:text-sm transition-all flex items-center gap-2 border border-green-600/15 shadow-lg shadow-green-500/10"
                         >
                           <Check className="w-4 h-4" />
-                          <span>{lang === "ar" ? "حفظ وتفعيل جميع السيرفرات للمشاهدين 💾" : "Save All Servers for Viewers 💾"}</span>
+                          <span>{lang === "ar" ? "حفظ وتفعيل السيرفرات الأربعة للمشاهدين 💾" : "Save All 4 Servers 💾"}</span>
                         </button>
                       </div>
 
@@ -2855,542 +2546,34 @@ export default function App() {
               }`}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Admin Header with Tabs */}
-              <div className="p-4 sm:p-6 border-b border-zinc-800 bg-zinc-900/40 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Sliders className="w-5 h-5 text-amber-500" />
-                    <h3 className="text-base font-bold tracking-tight">
-                      {lang === "ar" ? "لوحة التحكم بمدير البوابة" : "Elite Portal Control Panel"}
-                    </h3>
-                  </div>
-                  <button
-                    onClick={() => setIsAdminOpen(false)}
-                    className="p-1.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+              {/* Admin Header */}
+              <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/40">
+                <div className="flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-amber-500" />
+                  <h3 className="text-base font-bold tracking-tight">
+                    {lang === "ar" ? "لوحة التحكم بمدير البوابة" : "Elite Portal Control Panel"}
+                  </h3>
                 </div>
-
-                {/* Tabs Switcher: Controls vs Analytics Dashboard */}
-                <div className="flex p-1 bg-zinc-900 rounded-xl border border-zinc-800">
-                  <button
-                    onClick={() => setAdminModalTab("controls")}
-                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-2 cursor-pointer ${
-                      adminModalTab === "controls"
-                        ? "bg-amber-500 text-black shadow-md font-black"
-                        : "text-zinc-400 hover:text-white"
-                    }`}
-                  >
-                    <Sliders className="w-3.5 h-3.5" />
-                    <span>{lang === "ar" ? "إدارة البوابة والمباريات" : "Portal Controls"}</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setAdminModalTab("analytics");
-                      fetchAnalyticsData();
-                    }}
-                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-2 cursor-pointer relative ${
-                      adminModalTab === "analytics"
-                        ? "bg-emerald-500 text-black shadow-md font-black"
-                        : "text-zinc-400 hover:text-white"
-                    }`}
-                  >
-                    <BarChart3 className="w-3.5 h-3.5" />
-                    <span>{lang === "ar" ? "داشبورد الإحصائيات والزوار" : "Analytics Dashboard"}</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                  </button>
-                </div>
+                <button
+                  onClick={() => setIsAdminOpen(false)}
+                  className="p-1.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
               {/* Content Body */}
-              <div className="p-4 sm:p-6 space-y-6 overflow-y-auto max-h-[500px]">
-                {adminModalTab === "analytics" ? (
-                  /* ANALYTICS DASHBOARD VIEW */
-                  <div className="space-y-6">
-                    {/* Live status header */}
-                    <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className="relative flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
-                        </span>
-                        <span className="text-xs font-black text-emerald-400">
-                          {lang === "ar" ? "إحصائيات فورية مباشر (تحديث تلقائي)" : "Real-time Live Analytics (Auto-sync)"}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => fetchAnalyticsData()}
-                        disabled={isLoadingAnalytics}
-                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAnalytics ? "animate-spin text-amber-500" : ""}`} />
-                        <span>{lang === "ar" ? "تحديث الآن" : "Refresh Now"}</span>
-                      </button>
-                    </div>
-
-                    {/* 4 Key Metric Cards */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {/* 1. Active Live Visitors */}
-                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-950/40 to-zinc-900/80 border border-emerald-500/20 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-extrabold text-emerald-400">
-                            {lang === "ar" ? "الزوار النشطين الآن" : "Active Visitors"}
-                          </span>
-                          <Users className="w-4 h-4 text-emerald-400" />
-                        </div>
-                        <p className="text-2xl font-black text-white tracking-tight">
-                          {analyticsData?.activeVisitors || 1}
-                        </p>
-                        <p className="text-[10px] text-zinc-400">
-                          {lang === "ar" ? "متواجدون حالياً بالموقع" : "On site right now"}
-                        </p>
-                      </div>
-
-                      {/* 2. Current Live Stream Viewers */}
-                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-red-950/40 to-zinc-900/80 border border-red-500/20 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-extrabold text-red-400">
-                            {lang === "ar" ? "مشاهدو البث المباشر" : "Stream Viewers"}
-                          </span>
-                          <Tv className="w-4 h-4 text-red-400 animate-pulse" />
-                        </div>
-                        <p className="text-2xl font-black text-white tracking-tight">
-                          {analyticsData?.currentLiveViewers || 0}
-                        </p>
-                        <p className="text-[10px] text-zinc-400">
-                          {lang === "ar" ? "يشاهدون البث حالياً" : "Watching live video"}
-                        </p>
-                      </div>
-
-                      {/* 3. Peak Concurrent Record */}
-                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-950/40 to-zinc-900/80 border border-amber-500/20 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-extrabold text-amber-400">
-                            {lang === "ar" ? "أعلى مشاهدين بالتزامن" : "Peak Concurrent"}
-                          </span>
-                          <Zap className="w-4 h-4 text-amber-400" />
-                        </div>
-                        <p className="text-2xl font-black text-white tracking-tight">
-                          {analyticsData?.peakConcurrentViewers ?? 0}
-                        </p>
-                        <p className="text-[10px] text-zinc-400">
-                          {lang === "ar" ? "أعلى رقم قياسي محقق" : "Record simultaneous peak"}
-                        </p>
-                      </div>
-
-                      {/* 4. Total Visits */}
-                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-blue-950/40 to-zinc-900/80 border border-blue-500/20 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-extrabold text-blue-400">
-                            {lang === "ar" ? "إجمالي الزيارات" : "Total Visits"}
-                          </span>
-                          <TrendingUp className="w-4 h-4 text-blue-400" />
-                        </div>
-                        <p className="text-2xl font-black text-white tracking-tight">
-                          {(analyticsData?.totalVisits ?? 0).toLocaleString()}
-                        </p>
-                        <p className="text-[10px] text-zinc-400">
-                          {lang === "ar" ? "مجموع الزيارات الكلي" : "Cumulative portal entries"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Devices & Top Live Matches Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Device Breakdown */}
-                      <div className="p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-3">
-                        <h4 className="text-xs font-black text-zinc-300 flex items-center gap-1.5">
-                          <Smartphone className="w-4 h-4 text-amber-500" />
-                          <span>{lang === "ar" ? "توزيع أجهزة الزوار" : "Device Breakdown"}</span>
-                        </h4>
-
-                        <div className="space-y-2.5">
-                          {/* Mobile */}
-                          <div>
-                            <div className="flex justify-between text-[11px] font-bold text-zinc-300 mb-1">
-                              <span className="flex items-center gap-1">
-                                <Smartphone className="w-3.5 h-3.5 text-amber-400" />
-                                {lang === "ar" ? "هواتف ذكية (Mobile)" : "Smartphones"}
-                              </span>
-                              <span>{analyticsData?.deviceBreakdown?.mobile ?? 0}%</span>
-                            </div>
-                            <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                              <div 
-                                className="h-full bg-amber-500 rounded-full transition-all duration-500" 
-                                style={{ width: `${analyticsData?.deviceBreakdown?.mobile ?? 0}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Desktop */}
-                          <div>
-                            <div className="flex justify-between text-[11px] font-bold text-zinc-300 mb-1">
-                              <span className="flex items-center gap-1">
-                                <Monitor className="w-3.5 h-3.5 text-blue-400" />
-                                {lang === "ar" ? "أجهزة كمبيوتر (Desktop)" : "Computers"}
-                              </span>
-                              <span>{analyticsData?.deviceBreakdown?.desktop ?? 0}%</span>
-                            </div>
-                            <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                              <div 
-                                className="h-full bg-blue-500 rounded-full transition-all duration-500" 
-                                style={{ width: `${analyticsData?.deviceBreakdown?.desktop ?? 0}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Tablet */}
-                          <div>
-                            <div className="flex justify-between text-[11px] font-bold text-zinc-300 mb-1">
-                              <span className="flex items-center gap-1">
-                                <Tablet className="w-3.5 h-3.5 text-purple-400" />
-                                {lang === "ar" ? "أجهزة لوحية (Tablet)" : "Tablets"}
-                              </span>
-                              <span>{analyticsData?.deviceBreakdown?.tablet ?? 0}%</span>
-                            </div>
-                            <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                              <div 
-                                className="h-full bg-purple-500 rounded-full transition-all duration-500" 
-                                style={{ width: `${analyticsData?.deviceBreakdown?.tablet ?? 0}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Top Viewed Matches */}
-                      <div className="p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-3">
-                        <h4 className="text-xs font-black text-zinc-300 flex items-center gap-1.5">
-                          <Tv className="w-4 h-4 text-red-500" />
-                          <span>{lang === "ar" ? "المباريات الأكثر مشاهدة الآن" : "Top Live Matches Viewers"}</span>
-                        </h4>
-
-                        <div className="space-y-2 max-h-[140px] overflow-y-auto">
-                          {matches.length > 0 ? (
-                            matches.slice(0, 4).map((match, idx) => {
-                              const vCount = analyticsData?.matchViewersMap?.[match.id] || (idx === 0 ? Math.max(1, analyticsData?.currentLiveViewers || 1) : 0);
-                              return (
-                                <div key={`top-match-${match.id}-${idx}`} className="p-2 rounded-xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between text-xs">
-                                  <span className="font-bold truncate max-w-[170px]">
-                                    {match.teamA[lang] || match.teamA.en} vs {match.teamB[lang] || match.teamB.en}
-                                  </span>
-                                  <span className="px-2 py-0.5 rounded-lg bg-red-500/20 text-red-400 font-extrabold text-[10px] flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
-                                    {vCount} {lang === "ar" ? "مشاهد" : "viewers"}
-                                  </span>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <div className="p-4 text-center text-zinc-500 text-xs italic">
-                              {lang === "ar" ? "لا توجد مباريات جارية حالياً" : "No live matches running currently"}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Daily Selector & Daily Statistics Box (استبدال خانة المخطط بخانة تحديد اليوم وإحصائياته) */}
-                    <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-4">
-                      {/* Header & Day Selector Control Bar */}
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-amber-500" />
-                          <h4 className="text-xs font-black text-zinc-200">
-                            {lang === "ar" ? "تحديد اليوم واختيار التاريخ" : "Select Day & View Daily Stats"}
-                          </h4>
-                        </div>
-
-                        {/* Quick Presets & Calendar Date Input */}
-                        <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
-                          {[
-                            { label: lang === "ar" ? "اليوم" : "Today", offset: 0 },
-                            { label: lang === "ar" ? "الأمس" : "Yesterday", offset: 1 },
-                            { label: lang === "ar" ? "قبل يومين" : "2 Days Ago", offset: 2 },
-                            { label: lang === "ar" ? "قبل 3 أيام" : "3 Days Ago", offset: 3 },
-                          ].map((preset, idx) => {
-                            const pDate = new Date();
-                            pDate.setDate(pDate.getDate() - preset.offset);
-                            const pDateStr = pDate.toISOString().split("T")[0];
-                            const isSelected = selectedAnalyticsDate === pDateStr;
-
-                            return (
-                              <button
-                                key={`preset-date-${preset.offset}-${idx}`}
-                                onClick={() => setSelectedAnalyticsDate(pDateStr)}
-                                className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg transition cursor-pointer ${
-                                  isSelected
-                                    ? "bg-amber-500 text-black shadow-md font-black"
-                                    : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
-                                }`}
-                              >
-                                {preset.label}
-                              </button>
-                            );
-                          })}
-
-                          {/* Date Picker Input */}
-                          <input
-                            type="date"
-                            value={selectedAnalyticsDate}
-                            onChange={(e) => setSelectedAnalyticsDate(e.target.value)}
-                            className="px-2 py-1 bg-zinc-800 hover:bg-zinc-750 text-amber-400 font-mono text-[11px] font-bold rounded-lg border border-zinc-700 outline-none focus:border-amber-500 cursor-pointer"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Active Selected Day Overview Status Banner */}
-                      <div className="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${analyticsData?.isToday ? "bg-emerald-500 animate-ping" : "bg-amber-500"}`} />
-                          <span className="text-xs font-bold text-zinc-300">
-                            {lang === "ar" ? "تاريخ اليوم المحدد:" : "Selected Date:"}{" "}
-                            <span className="font-mono text-amber-400 font-black">{selectedAnalyticsDate}</span>
-                          </span>
-                        </div>
-
-                        <span className={`px-2.5 py-0.5 text-[10px] font-extrabold rounded-full ${
-                          analyticsData?.isToday 
-                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" 
-                            : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                        }`}>
-                          {analyticsData?.isToday
-                            ? (lang === "ar" ? "اليوم الحالي (مباشر)" : "Current Day (Live)")
-                            : (lang === "ar" ? "أرشيف تاريخي" : "Historical Record")}
-                        </span>
-                      </div>
-
-                      {/* 4 Detailed Day Metric Cards */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                        {/* 1. Day Visitors */}
-                        <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800/80 space-y-1">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-zinc-400">
-                            <span>{lang === "ar" ? "زوار اليوم" : "Day Visitors"}</span>
-                            <Users className="w-3.5 h-3.5 text-emerald-400" />
-                          </div>
-                          <p className="text-lg font-black text-white font-mono">
-                            {(analyticsData?.dayVisits || 0).toLocaleString()}
-                          </p>
-                          <p className="text-[9px] text-zinc-500">
-                            {lang === "ar" ? "إجمالي زيارات اليوم" : "Day visits count"}
-                          </p>
-                        </div>
-
-                        {/* 2. Day Stream Views */}
-                        <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800/80 space-y-1">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-zinc-400">
-                            <span>{lang === "ar" ? "مشاهدات البث" : "Stream Plays"}</span>
-                            <Tv className="w-3.5 h-3.5 text-red-400" />
-                          </div>
-                          <p className="text-lg font-black text-white font-mono">
-                            {(analyticsData?.dayStreamViews || 0).toLocaleString()}
-                          </p>
-                          <p className="text-[9px] text-zinc-500">
-                            {lang === "ar" ? "تشغيل البث باليوم" : "Video plays during day"}
-                          </p>
-                        </div>
-
-                        {/* 3. Day Peak Concurrent */}
-                        <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800/80 space-y-1">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-zinc-400">
-                            <span>{lang === "ar" ? "أعلى تزامن" : "Peak Concurrent"}</span>
-                            <Zap className="w-3.5 h-3.5 text-amber-400" />
-                          </div>
-                          <p className="text-lg font-black text-white font-mono">
-                            {(analyticsData?.dayPeakConcurrent || 0).toLocaleString()}
-                          </p>
-                          <p className="text-[9px] text-zinc-500">
-                            {lang === "ar" ? "أقصى تواجد بلحظة" : "Peak simultaneous"}
-                          </p>
-                        </div>
-
-                        {/* 4. Avg Session Duration */}
-                        <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800/80 space-y-1">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-zinc-400">
-                            <span>{lang === "ar" ? "معدل البقاء" : "Avg Duration"}</span>
-                            <Clock className="w-3.5 h-3.5 text-blue-400" />
-                          </div>
-                          <p className="text-lg font-black text-white font-mono">
-                            {analyticsData?.avgWatchDuration || 38} {lang === "ar" ? "دقيقة" : "min"}
-                          </p>
-                          <p className="text-[9px] text-zinc-500">
-                            {lang === "ar" ? "معدل المكوث بالموقع" : "Average time on site"}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Hourly Breakdown Timeline for Selected Day */}
-                      <div className="pt-2 border-t border-zinc-800/60 space-y-2">
-                        <div className="flex items-center justify-between text-[11px] font-extrabold text-zinc-300">
-                          <span className="flex items-center gap-1.5">
-                            <BarChart3 className="w-3.5 h-3.5 text-amber-500" />
-                            {lang === "ar" ? "التوزيع الساعي لنشاط اليوم المحدد (24 ساعة)" : "24-Hour Day Activity Distribution"}
-                          </span>
-                          <div className="flex items-center gap-2 text-[10px]">
-                            <span className="flex items-center gap-1 text-emerald-400">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              {lang === "ar" ? "زوار" : "Visitors"}
-                            </span>
-                            <span className="flex items-center gap-1 text-red-400">
-                              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                              {lang === "ar" ? "بث" : "Stream"}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="h-24 flex items-end gap-1 pt-3 pb-1">
-                          {(analyticsData?.hourlyTrend || []).map((item, i) => {
-                            const maxV = Math.max(...(analyticsData?.hourlyTrend || []).map(t => t.visitors), 1);
-                            const heightPct = Math.round((item.visitors / maxV) * 100);
-                            const streamPct = Math.round((item.liveViewers / maxV) * 100);
-
-                            return (
-                              <div key={`hourly-trend-${item.time || i}-${i}`} className="flex-1 flex flex-col items-center gap-1 group relative h-full justify-end">
-                                <div className="absolute -top-9 bg-black/95 text-white text-[9px] px-2 py-1 rounded shadow-xl border border-zinc-700 opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none z-20">
-                                  {item.time}: {item.visitors} {lang === "ar" ? "زائر" : "visitors"} | {item.liveViewers} {lang === "ar" ? "بث" : "streamers"}
-                                </div>
-                                <div className="w-full flex items-end gap-0.5 h-full">
-                                  <div 
-                                    className="w-1/2 bg-emerald-500/80 group-hover:bg-emerald-400 rounded-t transition-all"
-                                    style={{ height: `${Math.max(12, heightPct)}%` }}
-                                  />
-                                  <div 
-                                    className="w-1/2 bg-red-500/80 group-hover:bg-red-400 rounded-t transition-all"
-                                    style={{ height: `${Math.max(6, streamPct)}%` }}
-                                  />
-                                </div>
-                                <span className="text-[8px] font-mono text-zinc-500 mt-1">{item.time}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
+              <div className="p-6 space-y-6 overflow-y-auto max-h-[450px]">
+                {/* Success/Error Message */}
+                {adminMessage && (
+                  <div className={`p-3 rounded-xl text-xs font-bold border ${
+                    adminMessage.type === "success"
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      : "bg-red-500/10 text-red-400 border-red-500/20"
+                  }`}>
+                    {adminMessage.text}
                   </div>
-                ) : (
-                  /* CONTROLS VIEW */
-                  <div className="space-y-6">
-                    {/* Success/Error Message */}
-                    {adminMessage && (
-                      <div className={`p-3 rounded-xl text-xs font-bold border ${
-                        adminMessage.type === "success"
-                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                          : "bg-red-500/10 text-red-400 border-red-500/20"
-                      }`}>
-                        {adminMessage.text}
-                      </div>
-                    )}
-
-                    {/* Site Logo Manager Section for Admin */}
-                    <div className="p-4 rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/5 via-zinc-900/90 to-zinc-950 space-y-4 shadow-md">
-                      <div className="flex items-center justify-between gap-3 pb-3 border-b border-zinc-800">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
-                            <Image className="w-4.5 h-4.5" />
-                          </div>
-                          <div>
-                            <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
-                              {lang === "ar" ? "تغيير شعار الموقع (للمسؤول)" : "Change Site Logo (Admin)"}
-                            </h4>
-                            <p className="text-[10px] text-zinc-400">
-                              {lang === "ar" ? "الشعار المظهر أعلى الصفحة الرئيسية وفي الهيدر لجميع الزوار" : "Header logo displayed to all portal visitors"}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Current Logo Badge */}
-                        <div className="flex items-center gap-2 bg-zinc-900 px-3 py-1.5 rounded-xl border border-zinc-800 shrink-0">
-                          <span className="text-[10px] font-extrabold text-zinc-400">{lang === "ar" ? "الشعار الحالي:" : "Current:"}</span>
-                          <div className="w-8 h-8 rounded-lg bg-black border border-zinc-800 flex items-center justify-center overflow-hidden shrink-0">
-                            {siteLogo ? (
-                              <img src={siteLogo} alt="Logo Preview" className="w-full h-full object-cover" />
-                            ) : (
-                              <Sparkles className="w-4 h-4 text-amber-500" />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Upload & Logo Options */}
-                      <div className="space-y-3">
-                        {/* Upload from Device Gallery / Studio */}
-                        <div>
-                          <label className="text-[10px] font-extrabold text-zinc-300 uppercase tracking-wider block mb-1.5">
-                            {lang === "ar" ? "رفع صورة شعار جديدة من جهازك" : "Upload new logo photo from device"}
-                          </label>
-                          <label className="flex items-center justify-center gap-2 w-full p-3 rounded-xl border border-dashed border-amber-500/40 bg-zinc-900/60 hover:bg-zinc-850 cursor-pointer transition">
-                            <Upload className="w-4 h-4 text-amber-500" />
-                            <span className="text-xs font-bold text-zinc-200">
-                              {lang === "ar" ? "اضغط لاختيار صورة الشعار من الاستوديو" : "Click to select logo from gallery"}
-                            </span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    const newLogo = reader.result as string;
-                                    setSiteLogo(newLogo);
-                                  };
-                                  reader.readAsDataURL(file);
-                                }
-                              }}
-                            />
-                          </label>
-                        </div>
-
-                        {/* Save Logo Action */}
-                        <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800/80">
-                          <button
-                            type="button"
-                            onClick={handleSaveSiteLogo}
-                            disabled={isSavingLogo}
-                            className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black text-xs font-black rounded-xl shadow-lg shadow-amber-500/20 flex items-center gap-2 transition cursor-pointer"
-                          >
-                            {isSavingLogo ? (
-                              <RefreshCw className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Check className="w-4 h-4" />
-                            )}
-                            <span>{lang === "ar" ? "حفظ وتطبيق شعار الموقع" : "Save & Apply Site Logo"}</span>
-                          </button>
-
-                          {siteLogo && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                setSiteLogo("");
-                                setIsSavingLogo(true);
-                                try {
-                                  await fetch("/api/admin/site-settings", {
-                                    method: "POST",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ logo: "" })
-                                  });
-                                  localStorage.removeItem("el_portal_site_logo");
-                                  setAdminMessage({
-                                    text: lang === "ar" ? "تم إعادة الشعار الافتراضي للموقع." : "Reset to default logo.",
-                                    type: "success"
-                                  });
-                                } catch (e) {
-                                  // ignore
-                                } finally {
-                                  setIsSavingLogo(false);
-                                }
-                              }}
-                              className="text-xs font-bold text-zinc-400 hover:text-red-400 transition cursor-pointer"
-                            >
-                              {lang === "ar" ? "إعادة للشعار الافتراضي" : "Reset to default logo"}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                )}
 
                 {/* Custom Match Addition */}
                 <div className="space-y-3">
@@ -3493,8 +2676,91 @@ export default function App() {
                     )}
                   </div>
                 </div>
-              </div>
-            )}
+
+                {/* Buffer Settings (Controllable by Admin only) */}
+                <div className="space-y-4 pt-5 border-t border-zinc-800">
+                  <h4 className="text-xs font-extrabold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sliders className="w-4 h-4 text-amber-500" />
+                    <span>{lang === "ar" ? "٣. إعدادات بفر المشغل للمشاهدين" : "3. Viewer Player Buffer Settings"}</span>
+                  </h4>
+                  <p className="text-[11px] text-zinc-500 font-bold leading-relaxed">
+                    {lang === "ar"
+                      ? "تحكم في سعة التخزين المؤقت (Buffer) للمشاهدين لتحسين ثبات البث وتقليل التقطيع."
+                      : "Control player buffer capacity for viewers to improve stream stability and reduce buffering."}
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-zinc-900/20 p-4 rounded-2xl border border-zinc-900/80">
+                    {/* Max Buffer Length */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">
+                        {lang === "ar" ? "أقصى طول للبفر (ثانية)" : "Max Buffer Length (sec)"}
+                      </label>
+                      <input
+                        type="number"
+                        min="2"
+                        max="60"
+                        value={adminBufferMax}
+                        onChange={(e) => setAdminBufferMax(Math.max(2, parseInt(e.target.value) || 10))}
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-800 text-white focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[9px] text-zinc-500 block">
+                        {lang === "ar" ? "كلما زاد، قل التقطيع وزاد التأخير" : "Higher means less stutter, more latency"}
+                      </span>
+                    </div>
+
+                    {/* Max Max Buffer Length */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">
+                        {lang === "ar" ? "الحد الأقصى للبفر (ثانية)" : "Max-Max Buffer Length (sec)"}
+                      </label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="120"
+                        value={adminBufferMaxMax}
+                        onChange={(e) => setAdminBufferMaxMax(Math.max(5, parseInt(e.target.value) || 15))}
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-800 text-white focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[9px] text-zinc-500 block">
+                        {lang === "ar" ? "الحد الأقصى المطلق للتخزين" : "Absolute maximum buffer allowed"}
+                      </span>
+                    </div>
+
+                    {/* Live Sync Duration Count */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">
+                        {lang === "ar" ? "عدد قطع تزامن البث المباشر" : "Live Sync Segment Count"}
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={adminBufferSyncCount}
+                        onChange={(e) => setAdminBufferSyncCount(Math.max(1, parseInt(e.target.value) || 3))}
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-800 text-white focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[9px] text-zinc-500 block">
+                        {lang === "ar" ? "عدد الأجزاء للتزامن مع البث المباشر" : "Number of segments to sync with live"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSaveBufferSettings}
+                      disabled={isSavingBuffer}
+                      className="px-4 py-2 bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-zinc-700 text-xs font-bold text-amber-500 rounded-xl transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 animate-pulse"
+                    >
+                      {isSavingBuffer ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      <span>{lang === "ar" ? "حفظ وتطبيق البفر للمشاهدين" : "Save & Apply Buffer Settings"}</span>
+                    </button>
+                  </div>
+                </div>
           </div>
 
               {/* Admin Footer */}
@@ -3553,17 +2819,16 @@ export default function App() {
 
               {/* Tab Selector */}
               <div className="flex border-b border-zinc-800/80 bg-zinc-900/10 p-1">
-                {(["basic", "details", "streams", "scorers", "stats"] as const).map((tab) => {
+                {(["basic", "details", "scorers", "stats"] as const).map((tab) => {
                   const labels = {
                     basic: lang === "ar" ? "الأساسي" : "Basic",
                     details: lang === "ar" ? "التفاصيل" : "Details",
-                    streams: lang === "ar" ? "روابط البث 📡" : "Streams 📡",
                     scorers: lang === "ar" ? "الهدافين" : "Scorers",
                     stats: lang === "ar" ? "الإحصائيات" : "Stats"
                   };
                   return (
                     <button
-                      key={`edit-tab-${tab}`}
+                      key={tab}
                       onClick={() => setEditTab(tab)}
                       className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
                         editTab === tab
@@ -4100,114 +3365,6 @@ export default function App() {
                   </div>
                 )}
 
-                {editTab === "streams" && (
-                  <div className="space-y-4">
-                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-400 font-medium">
-                      {lang === "ar"
-                        ? "يمكنك إضافة روابط البث المباشر (Iframe / M3U8 / MP4) لهذه المباراة حتى لو لم تبدأ بعد. سيتم تفعيل زر البث وتوفيره للمشاهدين فور الإضافة."
-                        : "You can add live stream links (Iframe / M3U8 / MP4) for this match even if it has not started yet. The watch button will be enabled for viewers as soon as a link is added."}
-                    </div>
-
-                    {/* Main Stream URL */}
-                    <div>
-                      <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block mb-1">
-                        {lang === "ar" ? "رابط البث الرئيسي (Iframe أو video/m3u8)" : "Main Stream URL"}
-                      </label>
-                      <input
-                        type="text"
-                        dir="ltr"
-                        value={editingMatch.streamUrl || ""}
-                        onChange={(e) => setEditingMatch({ ...editingMatch, streamUrl: e.target.value })}
-                        placeholder="https://... or <iframe src='...'></iframe>"
-                        className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
-
-                    {/* Stream Type */}
-                    <div>
-                      <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block mb-1">
-                        {lang === "ar" ? "نوع المشغل" : "Player Type"}
-                      </label>
-                      <select
-                        value={editingMatch.streamType || "iframe"}
-                        onChange={(e) => setEditingMatch({ ...editingMatch, streamType: e.target.value as "iframe" | "video" })}
-                        className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-800 text-white focus:outline-none focus:border-amber-500"
-                      >
-                        <option value="iframe">Iframe Embed (تضمين)</option>
-                        <option value="video">Direct Video / HLS Stream (M3U8 / MP4)</option>
-                      </select>
-                    </div>
-
-                    {/* Multiple Servers Config */}
-                    <div className="space-y-3 pt-2 border-t border-zinc-800">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-extrabold text-amber-500 uppercase tracking-wider">
-                          {lang === "ar" ? "سيرفرات البث الإضافية" : "Additional Stream Servers"}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const current = editingMatch.streams || [];
-                            const nextNum = current.length + 1;
-                            setEditingMatch({
-                              ...editingMatch,
-                              streams: [
-                                ...current,
-                                { name: lang === "ar" ? `سيرفر ${nextNum}` : `Server ${nextNum}`, url: "", type: "iframe" }
-                              ]
-                            });
-                          }}
-                          className="p-1.5 text-[10px] bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-amber-500 font-bold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          {lang === "ar" ? "إضافة سيرفر" : "Add Server"}
-                        </button>
-                      </div>
-
-                      {(editingMatch.streams || []).map((srv: any, idx: number) => (
-                        <div key={`edit-match-stream-${idx}`} className="p-3 bg-zinc-900/40 border border-zinc-800 rounded-xl space-y-2 text-xs">
-                          <div className="flex items-center justify-between gap-2">
-                            <input
-                              type="text"
-                              value={srv.name || ""}
-                              onChange={(e) => {
-                                const updated = [...(editingMatch.streams || [])];
-                                updated[idx] = { ...updated[idx], name: e.target.value };
-                                setEditingMatch({ ...editingMatch, streams: updated });
-                              }}
-                              placeholder={`Server ${idx + 1}`}
-                              className="px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-amber-400 font-bold text-xs"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const updated = (editingMatch.streams || []).filter((_: any, i: number) => i !== idx);
-                                setEditingMatch({ ...editingMatch, streams: updated });
-                              }}
-                              className="p-1 text-red-500 hover:bg-red-500/10 rounded cursor-pointer"
-                              title={lang === "ar" ? "حذف السيرفر" : "Remove server"}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                          <input
-                            type="text"
-                            dir="ltr"
-                            value={srv.url || ""}
-                            onChange={(e) => {
-                              const updated = [...(editingMatch.streams || [])];
-                              updated[idx] = { ...updated[idx], url: e.target.value };
-                              setEditingMatch({ ...editingMatch, streams: updated });
-                            }}
-                            placeholder="Stream URL / Iframe"
-                            className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 rounded text-white font-mono text-[11px]"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {editTab === "scorers" && (
                   <div className="space-y-4">
                     {/* Home Goals (Team A) */}
@@ -4459,8 +3616,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-
-
       {/* Floating Support & Controls Bubble (Bottom Left) */}
       <div className="fixed bottom-6 left-6 z-50 flex flex-col items-start gap-3">
         <AnimatePresence>
@@ -4518,47 +3673,24 @@ export default function App() {
 
               {/* Admin Panel Access inside Support Popover (If Admin is selected) */}
               {userRole === "admin" && (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => {
-                      setIsAdminOpen(true);
-                      setAdminModalTab("controls");
-                      setAdminMessage(null);
-                      loadAdminMatchIds();
-                      setIsSupportOpen(false); // Auto close
-                    }}
-                    className={`p-2.5 rounded-xl border flex items-center justify-center gap-1.5 transition-all duration-300 ${
-                      theme === "black"
-                        ? "bg-zinc-900 border-zinc-800 text-zinc-200 hover:text-white hover:bg-zinc-800"
-                        : "bg-zinc-50 border-zinc-200 text-zinc-800 hover:bg-zinc-100"
-                    }`}
-                  >
-                    <Settings className="w-4 h-4 text-amber-500" />
-                    <span className="text-xs font-bold">
-                      {lang === "ar" ? "لوحة التحكم" : "Admin Panel"}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setIsAdminOpen(true);
-                      setAdminModalTab("analytics");
-                      fetchAnalyticsData();
-                      setIsSupportOpen(false); // Auto close
-                    }}
-                    className={`p-2.5 rounded-xl border flex items-center justify-center gap-1.5 transition-all duration-300 relative ${
-                      theme === "black"
-                        ? "bg-emerald-950/40 border-emerald-800/50 text-emerald-300 hover:bg-emerald-900/50"
-                        : "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
-                    }`}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping absolute top-2 right-2" />
-                    <BarChart3 className="w-4 h-4 text-emerald-500" />
-                    <span className="text-xs font-bold">
-                      {lang === "ar" ? "الإحصائيات" : "Analytics"}
-                    </span>
-                  </button>
-                </div>
+                <button
+                  onClick={() => {
+                    setIsAdminOpen(true);
+                    setAdminMessage(null);
+                    loadAdminMatchIds();
+                    setIsSupportOpen(false); // Auto close
+                  }}
+                  className={`w-full p-2.5 rounded-xl border flex items-center justify-center gap-2 transition-all duration-300 ${
+                    theme === "black"
+                      ? "bg-zinc-900 border-zinc-800 text-zinc-200 hover:text-white hover:bg-zinc-800"
+                      : "bg-zinc-50 border-zinc-200 text-zinc-800 hover:bg-zinc-100"
+                  }`}
+                >
+                  <Settings className="w-4 h-4 text-red-500 animate-spin-slow" />
+                  <span className="text-xs font-bold">
+                    {lang === "ar" ? "لوحة التحكم" : "Admin Panel"}
+                  </span>
+                </button>
               )}
 
               {/* Extra Support Info */}
