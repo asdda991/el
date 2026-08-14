@@ -48,7 +48,8 @@ import {
   Zap,
   Smartphone,
   Monitor,
-  Tablet
+  Tablet,
+  Radio
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -58,7 +59,10 @@ import {
   sportsMatches, 
   cinemaMovies, 
   Match, 
-  Movie 
+  Movie,
+  Channel,
+  ChannelStream,
+  tvChannels
 } from "./data";
 
 import HlsVideoPlayer from "./components/HlsVideoPlayer";
@@ -245,8 +249,8 @@ export default function App() {
     }
   };
   
-  // Active section inside the middle ("sports" or "cinema")
-  const [activeTab, setActiveTab] = useState<"sports" | "cinema">("sports");
+  // Active section inside the middle ("sports", "cinema", or "channels")
+  const [activeTab, setActiveTab] = useState<"sports" | "cinema" | "channels">("sports");
   
   // Filters and search states
   const [sportsSearch, setSportsSearch] = useState("");
@@ -255,6 +259,59 @@ export default function App() {
   
   const [cinemaSearch, setCinemaSearch] = useState("");
   const [selectedGenreFilter, setSelectedGenreFilter] = useState<string>("all");
+
+  // Channels state
+  const [channelsSearch, setChannelsSearch] = useState("");
+  const [selectedChannelCategory, setSelectedChannelCategory] = useState<string>("all");
+  const [selectedPlayingChannel, setSelectedPlayingChannel] = useState<Channel | null>(null);
+  const [channelServerIndex, setChannelServerIndex] = useState<number>(0);
+  const [channelWindowMode, setChannelWindowMode] = useState<"inline" | "fullscreen">("inline");
+  const [customChannels, setCustomChannels] = useState<Channel[]>(() => {
+    try {
+      const saved = localStorage.getItem("el_portal_custom_channels");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const channelPlayerRef = useRef<HTMLDivElement>(null);
+
+  // Admin Channels Management state
+  const [adminEditingChannel, setAdminEditingChannel] = useState<Channel | null>(null);
+  const [isCreatingChannel, setIsCreatingChannel] = useState(false);
+  const [isSavingChannels, setIsSavingChannels] = useState(false);
+  const [channelFormData, setChannelFormData] = useState({
+    id: "",
+    nameAr: "",
+    nameEn: "",
+    category: "sports" as "sports" | "cinema" | "news" | "general" | "documentary" | "kids",
+    categoryNameAr: "رياضية",
+    categoryNameEn: "Sports",
+    logo: "",
+    quality: "FHD" as "4K" | "FHD" | "HD" | "SD",
+    countryAr: "",
+    countryEn: "",
+    currentProgramAr: "",
+    currentProgramEn: "",
+    streams: [
+      { nameAr: "سيرفر 1 (رئيسي)", nameEn: "Server 1 (Main)", url: "", type: "video" as "video" | "iframe", quality: "1080p" }
+    ]
+  });
+
+  // Admin Quick Match Stream Selector
+  const [adminSelectedMatchForStream, setAdminSelectedMatchForStream] = useState<string>("");
+  const [adminMatchStreamUrl, setAdminMatchStreamUrl] = useState("");
+  const [adminMatchStreamType, setAdminMatchStreamType] = useState<"video" | "iframe">("video");
+  const [adminMatchAdditionalStreams, setAdminMatchAdditionalStreams] = useState<{ name: string; url: string; type: "video" | "iframe" }[]>([]);
+  const [isSavingMatchStream, setIsSavingMatchStream] = useState(false);
+
+  const handlePlayChannel = (ch: Channel, srvIndex = 0) => {
+    setSelectedPlayingChannel(ch);
+    setChannelServerIndex(srvIndex);
+    if (channelPlayerRef.current) {
+      channelPlayerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
 
   // Booking simulator state
   const [selectedMovieForBooking, setSelectedMovieForBooking] = useState<Movie | null>(null);
@@ -339,15 +396,18 @@ export default function App() {
 
   const [cinemaWindowMode, setCinemaWindowMode] = useState<"inline" | "fullscreen">("inline");
 
-  // Reset full screen mode when switching away from cinema tab
+  // Reset full screen mode when switching away from cinema or channels tab
   useEffect(() => {
     if (activeTab !== "cinema" && cinemaWindowMode === "fullscreen") {
       setCinemaWindowMode("inline");
     }
-  }, [activeTab, cinemaWindowMode]);
+    if (activeTab !== "channels" && channelWindowMode === "fullscreen") {
+      setChannelWindowMode("inline");
+    }
+  }, [activeTab, cinemaWindowMode, channelWindowMode]);
 
   // Analytics Dashboard States
-  const [adminModalTab, setAdminModalTab] = useState<"controls" | "analytics">("controls");
+  const [adminModalTab, setAdminModalTab] = useState<"controls" | "streams" | "channels" | "analytics">("controls");
   const [selectedAnalyticsDate, setSelectedAnalyticsDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
@@ -1167,6 +1227,52 @@ export default function App() {
     });
   }, [selectedGenreFilter, cinemaSearch, lang]);
 
+  // Channel categories
+  const channelCategories = useMemo(() => [
+    { id: "all", label: t.all },
+    { id: "sports", label: t.sportsChannels },
+    { id: "cinema", label: t.cinemaChannels },
+    { id: "news", label: t.newsChannels },
+    { id: "general", label: t.generalChannels },
+    { id: "documentary", label: t.documentaryChannels },
+    { id: "kids", label: t.kidsChannels },
+  ], [t]);
+
+  // Combined Channels (Built-in + Custom)
+  const allChannelsList = useMemo(() => {
+    return [...tvChannels, ...customChannels];
+  }, [customChannels]);
+
+  // Filtered Channels
+  const filteredChannels = useMemo(() => {
+    return allChannelsList.filter(channel => {
+      const matchCat = selectedChannelCategory === "all" || channel.category === selectedChannelCategory;
+      const searchLower = channelsSearch.toLowerCase().trim();
+      if (!searchLower) return matchCat;
+
+      const nameAr = (channel.name?.ar || "").toLowerCase();
+      const nameEn = (channel.name?.en || "").toLowerCase();
+      const catAr = (channel.categoryName?.ar || "").toLowerCase();
+      const catEn = (channel.categoryName?.en || "").toLowerCase();
+      const currAr = (channel.currentProgram?.ar || "").toLowerCase();
+      const currEn = (channel.currentProgram?.en || "").toLowerCase();
+      const countryAr = (channel.country?.ar || "").toLowerCase();
+      const countryEn = (channel.country?.en || "").toLowerCase();
+
+      const matchesSearch = 
+        nameAr.includes(searchLower) ||
+        nameEn.includes(searchLower) ||
+        catAr.includes(searchLower) ||
+        catEn.includes(searchLower) ||
+        currAr.includes(searchLower) ||
+        currEn.includes(searchLower) ||
+        countryAr.includes(searchLower) ||
+        countryEn.includes(searchLower);
+
+      return matchCat && matchesSearch;
+    });
+  }, [allChannelsList, selectedChannelCategory, channelsSearch]);
+
   // Sync selected match details modal and streaming match with live clock tick updates
   useEffect(() => {
     if (selectedMatchForDetails) {
@@ -1379,8 +1485,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* MIDDLE SECTION: MAIN SELECTION HUBS (Sports & Cinema) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+        {/* MIDDLE SECTION: MAIN SELECTION HUBS (Sports, Cinema & All Channels) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
           
           {/* Sports Hub Option */}
           <button
@@ -1470,6 +1576,52 @@ export default function App() {
               <h2 className="text-xl md:text-2xl font-black">{t.cinema}</h2>
               <p className={`text-xs mt-2 leading-relaxed ${theme === 'black' ? 'text-zinc-400' : 'text-zinc-500'}`}>
                 {t.cinemaDesc}
+              </p>
+            </div>
+          </button>
+
+          {/* All Channels Hub Option (جميع القنوات) */}
+          <button
+            id="tab-channels"
+            onClick={() => setActiveTab("channels")}
+            className={`group text-start p-6 rounded-3xl border-2 transition-all duration-500 relative overflow-hidden block w-full cursor-pointer ${
+              activeTab === "channels"
+                ? theme === "black"
+                  ? "bg-gradient-to-br from-zinc-900 to-black border-cyan-500 shadow-2xl shadow-cyan-500/10 text-white"
+                  : "bg-white border-cyan-600 shadow-xl text-zinc-950"
+                : theme === "black"
+                  ? "bg-zinc-950/60 border-zinc-900 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200"
+                  : "bg-white/60 border-zinc-200 hover:border-zinc-400 text-zinc-500 hover:text-zinc-800"
+            }`}
+          >
+            {/* Hover background details for Channels card */}
+            <div className={`absolute -right-12 -bottom-12 w-44 h-44 rounded-full transition-all duration-500 opacity-20 group-hover:scale-125 ${
+              activeTab === "channels" ? "bg-cyan-500/20" : "bg-zinc-500/10"
+            }`} />
+
+            <div className="flex items-start justify-between relative z-10">
+              <div className={`p-4 rounded-2xl transition-all duration-500 ${
+                activeTab === "channels"
+                  ? theme === "black" ? "bg-cyan-500/20 text-cyan-400" : "bg-cyan-600 text-white"
+                  : theme === "black" ? "bg-zinc-900 text-zinc-400" : "bg-zinc-100 text-zinc-500"
+              }`}>
+                <Tv className="w-7 h-7 relative z-10" />
+              </div>
+
+              {/* Check indicator if selected */}
+              {activeTab === "channels" && (
+                <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest ${
+                  theme === "black" ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20" : "bg-cyan-50 text-cyan-700 border border-cyan-200"
+                }`}>
+                  {lang === "ar" ? "نشط" : "Active"}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 relative z-10">
+              <h2 className="text-xl md:text-2xl font-black">{t.channels}</h2>
+              <p className={`text-xs mt-2 leading-relaxed ${theme === 'black' ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                {t.channelsDesc}
               </p>
             </div>
           </button>
@@ -1833,6 +1985,406 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </motion.div>
+            )}
+
+            {/* 3. ALL CHANNELS TAB CONTENT (جميع القنوات) */}
+            {activeTab === "channels" && (
+              <motion.div
+                key="channels-view"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-8"
+              >
+                {/* Fullscreen Mobile & Tablet View for Active Channel */}
+                {channelWindowMode === "fullscreen" && selectedPlayingChannel && (
+                  <div className="fixed inset-0 z-[100] bg-black w-screen h-screen flex flex-col p-0 m-0 overflow-hidden">
+                    {/* Fullscreen Header */}
+                    <div className="p-3 bg-zinc-950/95 border-b border-zinc-800 flex items-center justify-between shrink-0">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-zinc-900 border border-zinc-700 flex items-center justify-center overflow-hidden">
+                          {selectedPlayingChannel.logo ? (
+                            <img
+                              src={selectedPlayingChannel.logo}
+                              alt={selectedPlayingChannel.name[lang] || selectedPlayingChannel.name.en}
+                              className="w-full h-full object-contain p-1"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          ) : (
+                            <Tv className="w-4 h-4 text-cyan-400" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-white">
+                              {selectedPlayingChannel.name[lang] || selectedPlayingChannel.name.en}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-red-600 text-white flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                              LIVE
+                            </span>
+                          </div>
+                          {selectedPlayingChannel.currentProgram && (
+                            <p className="text-[10px] text-zinc-400 truncate max-w-xs">
+                              {selectedPlayingChannel.currentProgram[lang] || selectedPlayingChannel.currentProgram.en}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Server Selection in Fullscreen */}
+                      <div className="flex items-center gap-2">
+                        {selectedPlayingChannel.streams && selectedPlayingChannel.streams.length > 1 && (
+                          <div className="hidden sm:flex items-center gap-1 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+                            {selectedPlayingChannel.streams.map((st, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => setChannelServerIndex(idx)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                                  channelServerIndex === idx
+                                    ? "bg-cyan-500 text-black font-black"
+                                    : "text-zinc-400 hover:text-white"
+                                }`}
+                              >
+                                {st.name[lang] || st.name.en || `${t.server} ${idx + 1}`}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => setChannelWindowMode("inline")}
+                          className="px-3 py-1.5 rounded-xl bg-zinc-800 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md border border-zinc-700 hover:bg-zinc-700 cursor-pointer"
+                        >
+                          <Minimize2 className="w-4 h-4" />
+                          <span className="hidden xs:inline">{lang === "ar" ? "خروج من الشاشة الكاملة" : "Exit Fullscreen"}</span>
+                        </button>
+
+                        <button
+                          onClick={() => setChannelWindowMode("inline")}
+                          className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Fullscreen Player Stream */}
+                    <div className="flex-1 w-full h-full bg-black relative flex items-center justify-center">
+                      {(() => {
+                        const currentStream = selectedPlayingChannel.streams?.[channelServerIndex] || selectedPlayingChannel.streams?.[0];
+                        const streamUrl = currentStream?.url || "";
+                        const streamType = currentStream?.type || "hls";
+
+                        if (isStreamVideoOrHls(streamUrl, streamType)) {
+                          return (
+                            <HlsVideoPlayer
+                              src={streamUrl}
+                              className="w-full h-full object-contain"
+                              lang={lang}
+                            />
+                          );
+                        } else {
+                          return (
+                            <iframe
+                              id="channel-fullscreen-iframe"
+                              src={streamUrl}
+                              title={selectedPlayingChannel.name[lang] || selectedPlayingChannel.name.en}
+                              className="w-full h-full border-none bg-black"
+                              allow="autoplay; encrypted-media; fullscreen"
+                              sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
+                            />
+                          );
+                        }
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* 1. TOP LIVE PLAYER HERO (When a channel is selected) */}
+                {selectedPlayingChannel && (
+                  <div 
+                    ref={channelPlayerRef}
+                    className={`rounded-3xl border overflow-hidden transition-all duration-500 shadow-xl ${
+                      theme === "black" 
+                        ? "border-cyan-500/30 bg-gradient-to-b from-zinc-900/90 to-black shadow-cyan-950/20" 
+                        : "border-cyan-200 bg-gradient-to-b from-white to-slate-50 shadow-cyan-100/50"
+                    }`}
+                  >
+                    {/* Player Top Navigation & Channel Meta */}
+                    <div className={`p-4 md:p-5 flex items-center justify-between gap-4 border-b ${
+                      theme === "black" ? "border-zinc-800 bg-zinc-950/80" : "border-zinc-200 bg-white"
+                    }`}>
+                      <div className="flex items-center gap-3.5">
+                        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-2xl border flex items-center justify-center p-1.5 shrink-0 ${
+                          theme === "black" ? "bg-zinc-900 border-zinc-700" : "bg-white border-zinc-200 shadow-sm"
+                        }`}>
+                          {selectedPlayingChannel.logo ? (
+                            <img
+                              src={selectedPlayingChannel.logo}
+                              alt={selectedPlayingChannel.name[lang] || selectedPlayingChannel.name.en}
+                              className="w-full h-full object-contain"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          ) : (
+                            <Tv className="w-5 h-5 text-cyan-500" />
+                          )}
+                        </div>
+
+                        <div>
+                          <h3 className="text-lg md:text-xl font-black">
+                            {selectedPlayingChannel.name[lang] || selectedPlayingChannel.name.en}
+                          </h3>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Live Stream Screen */}
+                    <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden">
+                      {(() => {
+                        const currentStream = selectedPlayingChannel.streams?.[channelServerIndex] || selectedPlayingChannel.streams?.[0];
+                        const streamUrl = currentStream?.url || "";
+                        const streamType = currentStream?.type || "hls";
+
+                        if (!streamUrl) {
+                          return (
+                            <div className="text-center p-8 text-zinc-500">
+                              <Tv className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                              <p className="text-xs">{lang === "ar" ? "لا يتوفر رابط بث مباشر لهذا السيرفر" : "No stream URL available for this server"}</p>
+                            </div>
+                          );
+                        }
+
+                        if (isStreamVideoOrHls(streamUrl, streamType)) {
+                          return (
+                            <HlsVideoPlayer
+                              key={`${selectedPlayingChannel.id}-${channelServerIndex}`}
+                              src={streamUrl}
+                              className="w-full h-full object-contain"
+                              lang={lang}
+                            />
+                          );
+                        } else {
+                          return (
+                            <iframe
+                              key={`${selectedPlayingChannel.id}-${channelServerIndex}`}
+                              id="channel-inline-iframe"
+                              src={streamUrl}
+                              title={selectedPlayingChannel.name[lang] || selectedPlayingChannel.name.en}
+                              className="w-full h-full border-none bg-black"
+                              allow="autoplay; encrypted-media; fullscreen"
+                              sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
+                            />
+                          );
+                        }
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. SEARCH & CATEGORIES NAVIGATION BAR */}
+                <div className={`p-4 md:p-6 rounded-3xl border transition-all duration-300 ${
+                  theme === "black" ? "bg-zinc-950/80 border-zinc-900" : "bg-white border-zinc-200 shadow-sm"
+                }`}>
+                  <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+                    {/* Search Field */}
+                    <div className="relative flex-1">
+                      <Search className={`w-4 h-4 absolute ${lang === 'ar' ? 'right-3.5' : 'left-3.5'} top-1/2 -translate-y-1/2 text-zinc-400`} />
+                      <input
+                        type="text"
+                        placeholder={t.searchChannels}
+                        value={channelsSearch}
+                        onChange={(e) => setChannelsSearch(e.target.value)}
+                        className={`w-full text-xs font-medium rounded-2xl py-3 ${
+                          lang === 'ar' ? 'pr-10 pl-10' : 'pl-10 pr-10'
+                        } border transition-all outline-none ${
+                          theme === "black"
+                            ? "bg-zinc-900/90 border-zinc-800 focus:border-cyan-500 text-white placeholder-zinc-500"
+                            : "bg-zinc-50 border-zinc-200 focus:border-cyan-600 text-zinc-900 placeholder-zinc-400"
+                        }`}
+                      />
+                      {channelsSearch && (
+                        <button
+                          onClick={() => setChannelsSearch("")}
+                          className={`absolute ${lang === 'ar' ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 p-1 rounded-full text-zinc-400 hover:text-white cursor-pointer`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Channels Count Badge */}
+                    <div className={`px-4 py-2 rounded-2xl text-xs font-bold shrink-0 flex items-center gap-2 border ${
+                      theme === "black" ? "bg-zinc-900/60 border-zinc-800 text-zinc-300" : "bg-zinc-100 border-zinc-200 text-zinc-700"
+                    }`}>
+                      <Tv className="w-4 h-4 text-cyan-500" />
+                      <span>{filteredChannels.length} {lang === "ar" ? "قناة متوفرة" : "channels available"}</span>
+                    </div>
+                  </div>
+
+                  {/* Category Pills Bar */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-4 scrollbar-none">
+                    {channelCategories.map((cat) => {
+                      const isActive = selectedChannelCategory === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => setSelectedChannelCategory(cat.id)}
+                          className={`px-4 py-2 rounded-xl text-xs font-black shrink-0 transition-all duration-300 cursor-pointer ${
+                            isActive
+                              ? theme === "black"
+                                ? "bg-cyan-500 text-black shadow-md shadow-cyan-500/20"
+                                : "bg-cyan-600 text-white shadow-md shadow-cyan-600/20"
+                              : theme === "black"
+                                ? "bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-850"
+                                : "bg-zinc-100 hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900 border border-zinc-200"
+                          }`}
+                        >
+                          {cat.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3. CHANNELS GRID LIST */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+                  {filteredChannels.length > 0 ? (
+                    filteredChannels.map((channel) => {
+                      const isPlaying = selectedPlayingChannel?.id === channel.id;
+                      const channelName = channel.name[lang] || channel.name.en;
+                      const categoryName = channel.categoryName[lang] || channel.categoryName.en;
+                      const countryName = channel.country ? (channel.country[lang] || channel.country.en) : "";
+                      const currentProg = channel.currentProgram ? (channel.currentProgram[lang] || channel.currentProgram.en) : "";
+
+                      return (
+                        <div
+                          key={channel.id}
+                          id={`channel-card-${channel.id}`}
+                          className={`group rounded-3xl border transition-all duration-300 p-5 flex flex-col justify-between relative overflow-hidden ${
+                            isPlaying
+                              ? theme === "black"
+                                ? "bg-gradient-to-b from-zinc-900 to-black border-cyan-500 shadow-xl shadow-cyan-500/10 ring-1 ring-cyan-500/40"
+                                : "bg-white border-cyan-500 shadow-lg ring-1 ring-cyan-500/40"
+                              : theme === "black"
+                                ? "bg-zinc-950/70 border-zinc-900 hover:border-zinc-700 hover:shadow-lg hover:shadow-cyan-950/10"
+                                : "bg-white border-zinc-200 hover:border-zinc-300 hover:shadow-md"
+                          }`}
+                        >
+                          {/* Top Header inside Card */}
+                          <div>
+                            <div className="flex items-start justify-between gap-3 mb-4">
+                              {/* Channel Logo */}
+                              <div className={`w-14 h-14 rounded-2xl border flex items-center justify-center p-2 relative overflow-hidden shrink-0 transition-transform duration-300 group-hover:scale-105 ${
+                                isPlaying
+                                  ? theme === "black" ? "bg-zinc-900 border-cyan-500/50 shadow-md shadow-cyan-500/10" : "bg-white border-cyan-500 shadow-sm"
+                                  : theme === "black" ? "bg-zinc-900 border-zinc-800" : "bg-zinc-50 border-zinc-200 shadow-sm"
+                              }`}>
+                                {channel.logo ? (
+                                  <img
+                                    src={channel.logo}
+                                    alt={channelName}
+                                    className="w-full h-full object-contain"
+                                    referrerPolicy="no-referrer"
+                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                  />
+                                ) : (
+                                  <Tv className="w-6 h-6 text-cyan-500" />
+                                )}
+                              </div>
+
+                              {/* Badges */}
+                              <div className="flex flex-col items-end gap-1.5">
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-red-600 text-white flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                  LIVE
+                                </span>
+                                <span className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase border ${
+                                  theme === "black" ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-zinc-100 border-zinc-200 text-zinc-600"
+                                }`}>
+                                  {channel.quality || "FHD"}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Channel Details */}
+                            <div className="mb-4">
+                              <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                                  theme === "black" ? "bg-cyan-500/10 text-cyan-400" : "bg-cyan-50 text-cyan-700"
+                                }`}>
+                                  {categoryName}
+                                </span>
+                                {countryName && (
+                                  <span className={`text-[10px] font-medium ${theme === 'black' ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                                    • {countryName}
+                                  </span>
+                                )}
+                              </div>
+
+                              <h4 className="text-base font-black truncate group-hover:text-cyan-400 transition-colors">
+                                {channelName}
+                              </h4>
+
+                              {currentProg && (
+                                <p className={`text-xs mt-1.5 line-clamp-1 font-medium flex items-center gap-1 ${
+                                  theme === 'black' ? 'text-zinc-400' : 'text-zinc-600'
+                                }`}>
+                                  <Radio className="w-2.5 h-2.5 text-red-500 shrink-0" />
+                                  <span className="truncate">{currentProg}</span>
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Footer Actions inside Card */}
+                          <div className="pt-3 border-t border-dashed flex items-center justify-between gap-2 border-zinc-800/60">
+                            <span className={`text-[10px] font-bold ${theme === 'black' ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                              {channel.streams?.length || 1} {lang === "ar" ? "سيرفرات" : "servers"}
+                            </span>
+
+                            <button
+                              id={`play-channel-${channel.id}`}
+                              onClick={() => handlePlayChannel(channel, 0)}
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all duration-300 cursor-pointer ${
+                                isPlaying
+                                  ? "bg-cyan-500 text-black shadow-md shadow-cyan-500/20"
+                                  : theme === "black"
+                                    ? "bg-zinc-900 hover:bg-cyan-500 hover:text-black text-white border border-zinc-800 hover:border-cyan-500"
+                                    : "bg-zinc-900 hover:bg-cyan-600 text-white shadow-sm"
+                              }`}
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>{isPlaying ? (lang === "ar" ? "قيد التشغيل" : "Playing") : t.watchChannel}</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="col-span-full text-center py-16">
+                      <Tv className="w-12 h-12 mx-auto text-zinc-600 mb-3 stroke-1" />
+                      <p className={`text-sm ${theme === 'black' ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                        {t.noChannelsFound}
+                      </p>
+                      {channelsSearch && (
+                        <button
+                          onClick={() => {
+                            setChannelsSearch("");
+                            setSelectedChannelCategory("all");
+                          }}
+                          className="mt-3 px-4 py-1.5 rounded-xl text-xs font-bold bg-cyan-500 text-black"
+                        >
+                          {lang === "ar" ? "إلغاء البحث" : "Clear Search"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </motion.div>
             )}
 

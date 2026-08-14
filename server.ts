@@ -1064,6 +1064,50 @@ function broadcastUpdate(type: string, data: any = {}) {
 
 // Site Settings Storage & Endpoints
 const SITE_SETTINGS_FILE = path.join(process.cwd(), "site_settings.json");
+const CHANNELS_FILE = path.join(process.cwd(), "channels.json");
+
+function getStoredChannels(): any[] {
+  try {
+    if (fs.existsSync(CHANNELS_FILE)) {
+      const data = fs.readFileSync(CHANNELS_FILE, "utf-8");
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.error("Error reading channels file:", err);
+  }
+  return [];
+}
+
+function saveStoredChannels(channels: any[]): boolean {
+  try {
+    fs.writeFileSync(CHANNELS_FILE, JSON.stringify(channels, null, 2));
+    return true;
+  } catch (err) {
+    console.error("Error saving channels file:", err);
+    return false;
+  }
+}
+
+app.get("/api/channels", (req, res) => {
+  res.json(getStoredChannels());
+});
+
+app.post("/api/admin/channels", (req, res) => {
+  const { channels } = req.body;
+  if (!Array.isArray(channels)) {
+    return res.status(400).json({ error: "channels array is required" });
+  }
+  const success = saveStoredChannels(channels);
+  if (success) {
+    broadcastUpdate("channels_updated", { channels });
+    res.json({ success: true, channels });
+  } else {
+    res.status(500).json({ error: "Failed to save channels" });
+  }
+});
 
 function getSiteSettings(): { logo: string; titleAr: string; titleEn: string } {
   try {

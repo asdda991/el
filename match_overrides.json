@@ -60,8 +60,8 @@
       }
     ]
   },
-  "custom_1786378703273": {
-    "id": "custom_1786378703273",
+  "custom_1786706668276": {
+    "id": "custom_1786706668276",
     "sport": "football",
     "teamA": {
       "ar": "ريال مدريد",
@@ -73,10 +73,10 @@
     },
     "scoreA": 0,
     "scoreB": 0,
-    "status": "live",
+    "status": "upcoming",
     "statusText": {
-      "ar": "مباشر",
-      "en": "Live"
+      "ar": "لم تبدأ",
+      "en": "Upcoming"
     },
     "time": {
       "ar": "20:00",
@@ -95,32 +95,6 @@
       "away": []
     },
     "stats": [],
-    "lineups": null,
-    "logoA": "https://images.fotmob.com/image_resources/logo/teamlogo/8633.png",
-    "logoB": "https://images.fotmob.com/image_resources/logo/teamlogo/8634.png",
-    "streamUrl": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/1836268.m3u8",
-    "streamType": "iframe",
-    "streams": [
-      {
-        "name": "FHD",
-        "url": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/1836268.m3u8",
-        "type": "iframe"
-      },
-      {
-        "name": "4K",
-        "url": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/2034167.m3u8",
-        "type": "iframe"
-      },
-      {
-        "name": "HD",
-        "url": "http://line.superflash.icu:80/live/cc80a5499c/06df54952403/1660410.m3u8",
-        "type": "iframe"
-      },
-      {
-        "name": "سيرفر 4",
-        "url": "",
-        "type": "iframe"
-      }
-    ]
+    "lineups": null
   }
 }
