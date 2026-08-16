@@ -59,42 +59,5 @@
         "type": "iframe"
       }
     ]
-  },
-  "custom_1786706668276": {
-    "id": "custom_1786706668276",
-    "sport": "football",
-    "teamA": {
-      "ar": "ريال مدريد",
-      "en": "Real Madrid"
-    },
-    "teamB": {
-      "ar": "برشلونة",
-      "en": "Barcelona"
-    },
-    "scoreA": 0,
-    "scoreB": 0,
-    "status": "upcoming",
-    "statusText": {
-      "ar": "لم تبدأ",
-      "en": "Upcoming"
-    },
-    "time": {
-      "ar": "20:00",
-      "en": "20:00"
-    },
-    "venue": {
-      "ar": "سانتياغو برنابيو",
-      "en": "Santiago Bernabéu"
-    },
-    "leagueName": {
-      "en": "La Liga",
-      "ar": "الدوري الإسباني"
-    },
-    "scorers": {
-      "home": [],
-      "away": []
-    },
-    "stats": [],
-    "lineups": null
   }
 }

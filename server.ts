@@ -1807,6 +1807,501 @@ app.get("/api/analytics/stats", (req, res) => {
   });
 });
 
+// Subscription Codes & Gate Management
+const SUBSCRIPTION_CODES_FILE = path.join(process.cwd(), "subscription_codes.json");
+const SUBSCRIPTION_SETTINGS_FILE = path.join(process.cwd(), "subscription_settings.json");
+
+interface SubscriptionCode {
+  id: string;
+  code: string;
+  planType: "24h" | "7d" | "30d" | "90d" | "365d" | "lifetime";
+  durationDays: number; // 1, 7, 30, 90, 365, or -1 for lifetime
+  status: "active" | "disabled" | "expired";
+  createdAt: string;
+  activatedAt?: string;
+  expiresAt?: string; // ISO date or "lifetime"
+  maxDevices: number; // 0 = unlimited, 1 = single device, 2 = 2 devices
+  usedCount: number;
+  devices: string[];
+  note?: string;
+}
+
+interface SubscriptionSettings {
+  gateEnabled: boolean; // Controls whether the All Channels list is locked by subscription code
+  title: { ar: string; en: string };
+  description: { ar: string; en: string };
+  supportContact: string; // WhatsApp number or link or telegram
+  supportType: "whatsapp" | "telegram" | "url" | "custom";
+}
+
+function getDefaultSubscriptionCodes(): SubscriptionCode[] {
+  return [
+    {
+      id: "sub_seed_1",
+      code: "VIP-LIVE-2026",
+      planType: "30d",
+      durationDays: 30,
+      status: "active",
+      createdAt: new Date().toISOString(),
+      maxDevices: 2,
+      usedCount: 0,
+      devices: [],
+      note: "كود تجريبي باقة VIP الشهرية (30 يوم)"
+    },
+    {
+      id: "sub_seed_2",
+      code: "PASS-7DAYS",
+      planType: "7d",
+      durationDays: 7,
+      status: "active",
+      createdAt: new Date().toISOString(),
+      maxDevices: 1,
+      usedCount: 0,
+      devices: [],
+      note: "كود تجريبي باقة الأسبوع (7 أيام)"
+    },
+    {
+      id: "sub_seed_3",
+      code: "SPORT-1YEAR",
+      planType: "365d",
+      durationDays: 365,
+      status: "active",
+      createdAt: new Date().toISOString(),
+      maxDevices: 3,
+      usedCount: 0,
+      devices: [],
+      note: "كود باقة سنوية (365 يوم)"
+    },
+    {
+      id: "sub_seed_4",
+      code: "LIFETIME-ACCESS",
+      planType: "lifetime",
+      durationDays: -1,
+      status: "active",
+      createdAt: new Date().toISOString(),
+      maxDevices: 0,
+      usedCount: 0,
+      devices: [],
+      note: "اشتراك دائم مدى الحياة بدون انتهاء"
+    }
+  ];
+}
+
+function getSubscriptionCodes(): SubscriptionCode[] {
+  try {
+    if (fs.existsSync(SUBSCRIPTION_CODES_FILE)) {
+      const data = fs.readFileSync(SUBSCRIPTION_CODES_FILE, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error("Error reading subscription codes:", err);
+  }
+  const defaultCodes = getDefaultSubscriptionCodes();
+  saveSubscriptionCodes(defaultCodes);
+  return defaultCodes;
+}
+
+function saveSubscriptionCodes(codes: SubscriptionCode[]) {
+  try {
+    fs.writeFileSync(SUBSCRIPTION_CODES_FILE, JSON.stringify(codes, null, 2));
+  } catch (err) {
+    console.error("Error saving subscription codes:", err);
+  }
+}
+
+function getSubscriptionSettings(): SubscriptionSettings {
+  const defaultSettings: SubscriptionSettings = {
+    gateEnabled: true, // Gate channels behind subscription code
+    title: {
+      ar: "تفعيل اشتراك باقة القنوات التلفزيونية VIP",
+      en: "VIP TV Channels Subscription Activation"
+    },
+    description: {
+      ar: "يرجى إدخال كود التفعيل للوصول إلى قائمة جميع القنوات التلفزيونية والبث المباشر عالي الجودة.",
+      en: "Please enter your activation code to access all live TV channels and ultra HD streams."
+    },
+    supportContact: "https://wa.me/966500000000",
+    supportType: "whatsapp"
+  };
+
+  try {
+    if (fs.existsSync(SUBSCRIPTION_SETTINGS_FILE)) {
+      const data = fs.readFileSync(SUBSCRIPTION_SETTINGS_FILE, "utf-8");
+      return { ...defaultSettings, ...JSON.parse(data) };
+    }
+  } catch (err) {
+    console.error("Error reading subscription settings:", err);
+  }
+  return defaultSettings;
+}
+
+function saveSubscriptionSettings(settings: SubscriptionSettings) {
+  try {
+    fs.writeFileSync(SUBSCRIPTION_SETTINGS_FILE, JSON.stringify(settings, null, 2));
+  } catch (err) {
+    console.error("Error saving subscription settings:", err);
+  }
+}
+
+// 1. Public API: Get Subscription Settings & Gate Status
+app.get("/api/subscription/settings", (req, res) => {
+  try {
+    const settings = getSubscriptionSettings();
+    res.json(settings);
+  } catch (error) {
+    console.error("Error fetching subscription settings:", error);
+    res.status(500).json({ error: "Failed to fetch settings" });
+  }
+});
+
+// 2. Admin API: Update Subscription Settings
+app.post("/api/admin/subscription/settings", (req, res) => {
+  try {
+    const current = getSubscriptionSettings();
+    const updated = { ...current, ...req.body };
+    saveSubscriptionSettings(updated);
+    broadcastUpdate("subscription_settings_updated");
+    res.json({ success: true, settings: updated });
+  } catch (error) {
+    console.error("Error updating subscription settings:", error);
+    res.status(500).json({ error: "Failed to update settings" });
+  }
+});
+
+// 3. Admin API: Get All Subscription Codes with stats
+app.get("/api/admin/subscription/codes", (req, res) => {
+  try {
+    const codes = getSubscriptionCodes();
+    const now = Date.now();
+
+    // Compute active/expired dynamically
+    let activeCount = 0;
+    let expiredCount = 0;
+    let disabledCount = 0;
+    let totalUsedDevices = 0;
+
+    const enrichedCodes = codes.map((c) => {
+      let currentStatus = c.status;
+      if (c.status === "active" && c.expiresAt && c.expiresAt !== "lifetime") {
+        const expTime = new Date(c.expiresAt).getTime();
+        if (!isNaN(expTime) && expTime < now) {
+          currentStatus = "expired";
+        }
+      }
+
+      if (currentStatus === "active") activeCount++;
+      else if (currentStatus === "expired") expiredCount++;
+      else if (currentStatus === "disabled") disabledCount++;
+
+      totalUsedDevices += (c.devices?.length || 0);
+
+      return {
+        ...c,
+        computedStatus: currentStatus
+      };
+    });
+
+    res.json({
+      codes: enrichedCodes,
+      stats: {
+        total: codes.length,
+        active: activeCount,
+        expired: expiredCount,
+        disabled: disabledCount,
+        totalUsedDevices
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching subscription codes:", error);
+    res.status(500).json({ error: "Failed to load subscription codes" });
+  }
+});
+
+// 4. Admin API: Generate Single or Batch Subscription Codes
+app.post("/api/admin/subscription/codes/generate", (req, res) => {
+  try {
+    const {
+      customCode,
+      prefix = "VIP",
+      planType = "30d",
+      durationDays = 30,
+      count = 1,
+      maxDevices = 1,
+      note = ""
+    } = req.body;
+
+    const existingCodes = getSubscriptionCodes();
+    const newCodes: SubscriptionCode[] = [];
+    const numToGenerate = Math.min(Math.max(1, Number(count) || 1), 50);
+
+    const generateRandomStr = (len = 4) => {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let res = "";
+      for (let i = 0; i < len; i++) {
+        res += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return res;
+    };
+
+    for (let i = 0; i < numToGenerate; i++) {
+      let codeString = "";
+      if (numToGenerate === 1 && customCode && customCode.trim()) {
+        codeString = customCode.trim().toUpperCase().replace(/\s+/g, "-");
+      } else {
+        const pfx = (prefix || "VIP").trim().toUpperCase();
+        codeString = `${pfx}-${generateRandomStr(4)}-${generateRandomStr(4)}`;
+      }
+
+      // Ensure uniqueness
+      let uniqueCode = codeString;
+      let counter = 1;
+      while (existingCodes.some((c) => c.code.toUpperCase() === uniqueCode.toUpperCase()) || newCodes.some((c) => c.code.toUpperCase() === uniqueCode.toUpperCase())) {
+        uniqueCode = `${codeString}-${generateRandomStr(2)}`;
+        counter++;
+        if (counter > 20) break;
+      }
+
+      const newCodeItem: SubscriptionCode = {
+        id: `code_${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${i}`,
+        code: uniqueCode,
+        planType: (planType || "30d") as any,
+        durationDays: Number(durationDays),
+        status: "active",
+        createdAt: new Date().toISOString(),
+        maxDevices: Number(maxDevices) || 0,
+        usedCount: 0,
+        devices: [],
+        note: (note || "").trim()
+      };
+
+      newCodes.push(newCodeItem);
+    }
+
+    const updatedList = [...newCodes, ...existingCodes];
+    saveSubscriptionCodes(updatedList);
+    broadcastUpdate("subscription_codes_updated");
+
+    res.json({ success: true, generatedCount: newCodes.length, codes: newCodes });
+  } catch (error) {
+    console.error("Error generating subscription codes:", error);
+    res.status(500).json({ error: "Failed to generate codes" });
+  }
+});
+
+// 5. Admin API: Update a Subscription Code
+app.put("/api/admin/subscription/codes/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, note, maxDevices, addDays, resetDevices } = req.body;
+
+    const codes = getSubscriptionCodes();
+    const index = codes.findIndex((c) => c.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: "Code not found" });
+    }
+
+    const target = codes[index];
+
+    if (status) {
+      target.status = status;
+    }
+    if (note !== undefined) {
+      target.note = note;
+    }
+    if (maxDevices !== undefined) {
+      target.maxDevices = Number(maxDevices);
+    }
+    if (resetDevices) {
+      target.devices = [];
+      target.usedCount = 0;
+    }
+    if (addDays && Number(addDays) > 0) {
+      if (target.expiresAt && target.expiresAt !== "lifetime") {
+        const curExp = new Date(target.expiresAt).getTime();
+        const baseTime = !isNaN(curExp) && curExp > Date.now() ? curExp : Date.now();
+        target.expiresAt = new Date(baseTime + Number(addDays) * 24 * 60 * 60 * 1000).toISOString();
+        target.status = "active";
+      } else if (!target.expiresAt) {
+        target.durationDays = (target.durationDays || 0) + Number(addDays);
+      }
+    }
+
+    codes[index] = target;
+    saveSubscriptionCodes(codes);
+    broadcastUpdate("subscription_codes_updated");
+
+    res.json({ success: true, code: target });
+  } catch (error) {
+    console.error("Error updating subscription code:", error);
+    res.status(500).json({ error: "Failed to update code" });
+  }
+});
+
+// 6. Admin API: Delete a Subscription Code
+app.delete("/api/admin/subscription/codes/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const codes = getSubscriptionCodes();
+    const filtered = codes.filter((c) => c.id !== id);
+    saveSubscriptionCodes(filtered);
+    broadcastUpdate("subscription_codes_updated");
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting subscription code:", error);
+    res.status(500).json({ error: "Failed to delete code" });
+  }
+});
+
+// 7. Public API: Verify and Activate a Subscription Code
+app.post("/api/subscription/verify", (req, res) => {
+  try {
+    const { code, deviceId } = req.body;
+    if (!code || typeof code !== "string" || !code.trim()) {
+      return res.status(400).json({ valid: false, message: "يرجى إدخال كود التفعيل" });
+    }
+
+    const normalizedCode = code.trim().toUpperCase();
+    const devId = (deviceId || "web_client_" + Math.random().toString(36).substring(2, 9)).trim();
+
+    const codes = getSubscriptionCodes();
+    const target = codes.find((c) => c.code.toUpperCase() === normalizedCode);
+
+    if (!target) {
+      return res.status(404).json({
+        valid: false,
+        message: "كود التفعيل غير صحيح، يرجى التأكد من الكود والمحاولة مجدداً"
+      });
+    }
+
+    if (target.status === "disabled") {
+      return res.status(403).json({
+        valid: false,
+        message: "تم إيقاف هذا الكود بواسطة إدارة البوابة، يرجى التواصل مع الدعم الفني"
+      });
+    }
+
+    const now = Date.now();
+
+    // Check if expired
+    if (target.expiresAt && target.expiresAt !== "lifetime") {
+      const expTime = new Date(target.expiresAt).getTime();
+      if (!isNaN(expTime) && expTime < now) {
+        target.status = "expired";
+        saveSubscriptionCodes(codes);
+        return res.status(403).json({
+          valid: false,
+          message: "انتهت صلاحية هذا الكود، يرجى تجديد الاشتراك"
+        });
+      }
+    }
+
+    // Check device limit
+    const isDeviceAlreadyRegistered = (target.devices || []).includes(devId);
+    if (!isDeviceAlreadyRegistered && target.maxDevices > 0) {
+      if ((target.devices || []).length >= target.maxDevices) {
+        return res.status(403).json({
+          valid: false,
+          message: `تم الوصول للحد الأقصى من الأجهزة المسموحة لهذا الكود (${target.maxDevices} أجهزة)`
+        });
+      }
+    }
+
+    // First time activation timestamp & expiry calculation
+    if (!target.activatedAt) {
+      target.activatedAt = new Date().toISOString();
+      if (target.durationDays === -1) {
+        target.expiresAt = "lifetime";
+      } else {
+        const days = target.durationDays > 0 ? target.durationDays : 30;
+        target.expiresAt = new Date(now + days * 24 * 60 * 60 * 1000).toISOString();
+      }
+    }
+
+    // Register device if not yet registered
+    if (!isDeviceAlreadyRegistered) {
+      target.devices = [...(target.devices || []), devId];
+      target.usedCount = (target.usedCount || 0) + 1;
+    }
+
+    saveSubscriptionCodes(codes);
+
+    // Calculate remaining days
+    let remainingDays = -1; // lifetime
+    if (target.expiresAt && target.expiresAt !== "lifetime") {
+      const expTime = new Date(target.expiresAt).getTime();
+      remainingDays = Math.max(0, Math.ceil((expTime - now) / (24 * 60 * 60 * 1000)));
+    }
+
+    res.json({
+      valid: true,
+      success: true,
+      message: "تم تفعيل الاشتراك بنجاح!",
+      subscription: {
+        code: target.code,
+        planType: target.planType,
+        durationDays: target.durationDays,
+        activatedAt: target.activatedAt,
+        expiresAt: target.expiresAt,
+        remainingDays,
+        isLifetime: target.durationDays === -1,
+        note: target.note || ""
+      }
+    });
+  } catch (error) {
+    console.error("Error verifying subscription code:", error);
+    res.status(500).json({ valid: false, message: "حدث خطأ أثناء التحقق من الكود" });
+  }
+});
+
+// 8. Public API: Check Status of Stored Subscription Token
+app.post("/api/subscription/check-status", (req, res) => {
+  try {
+    const { code, deviceId } = req.body;
+    if (!code || typeof code !== "string") {
+      return res.json({ valid: false });
+    }
+
+    const normalizedCode = code.trim().toUpperCase();
+    const codes = getSubscriptionCodes();
+    const target = codes.find((c) => c.code.toUpperCase() === normalizedCode);
+
+    if (!target || target.status === "disabled") {
+      return res.json({ valid: false });
+    }
+
+    const now = Date.now();
+    if (target.expiresAt && target.expiresAt !== "lifetime") {
+      const expTime = new Date(target.expiresAt).getTime();
+      if (!isNaN(expTime) && expTime < now) {
+        return res.json({ valid: false, expired: true });
+      }
+    }
+
+    let remainingDays = -1;
+    if (target.expiresAt && target.expiresAt !== "lifetime") {
+      const expTime = new Date(target.expiresAt).getTime();
+      remainingDays = Math.max(0, Math.ceil((expTime - now) / (24 * 60 * 60 * 1000)));
+    }
+
+    res.json({
+      valid: true,
+      subscription: {
+        code: target.code,
+        planType: target.planType,
+        durationDays: target.durationDays,
+        activatedAt: target.activatedAt,
+        expiresAt: target.expiresAt,
+        remainingDays,
+        isLifetime: target.durationDays === -1
+      }
+    });
+  } catch (error) {
+    console.error("Error checking subscription status:", error);
+    res.status(500).json({ valid: false });
+  }
+});
+
 // Start server with Vite middleware or static files
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
